@@ -19,12 +19,13 @@
     };
 
     user = mkOption {
-      type = types.nullOr types.str;
-      default = null;
+      type = types.str;
+      default = "root";
       description = ''
-        System user that runs the Hermes Agent gateway. Required when
-        `hermetixos.agent.enable` is true. A consumer supplies its own value;
-        no default user is assumed.
+        System user that runs the Hermes Agent gateway. Defaults to `root`:
+        the agent-first stance is that the agent runs with full privileges and
+        never prompts for sudo. A consumer may override to a lesser-privileged
+        user if they prefer.
       '';
     };
 
@@ -42,20 +43,10 @@
   };
 
   config = lib.mkIf config.hermetixos.agent.enable {
-    assertions = [
-      {
-        assertion = config.hermetixos.agent.user != null;
-        message = ''
-          `hermetixos.agent.user` must be set (non-null) when
-          `hermetixos.agent.enable` is true.
-        '';
-      }
-    ];
-
     services.hermes-agent = {
       enable = true;
       user = config.hermetixos.agent.user;
-      createUser = true; # distro owns the agent user; never assume a login user exists
+      createUser = config.hermetixos.agent.user != "root";
       addToSystemPackages = true;
       settings = config.hermetixos.agent.settings;
     };
