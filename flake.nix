@@ -26,9 +26,12 @@
     {
       nixosConfigurations.hermetixos = nixpkgs.lib.nixosSystem {
         system = "x86_64-linux";
+        specialArgs = {
+          inherit hermes-agent;
+        };
         modules = [
-          hermes-agent.nixosModules.default
           home-manager.nixosModules.home-manager
+          ./modules/hermes-agent.nix
         ];
       };
     };
