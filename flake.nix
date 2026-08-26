@@ -24,8 +24,7 @@
     }:
     {
       nixosModules = {
-        default = import ./nixosModules/agent.nix;
-        agent = import ./nixosModules/agent.nix;
+        default = import ./nixosModules/default.nix;
       };
 
       homeManagerModules = {

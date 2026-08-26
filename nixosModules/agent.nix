@@ -9,67 +9,69 @@
 {
   imports = [ hermes-agent.nixosModules.default ];
 
-  options.hermetixos.agent = with lib; {
-    enable = mkOption {
-      type = types.bool;
-      default = false;
-      description = ''
-        Whether to enable the Hermes Agent gateway on this system.
-        Disabled by default so the distro is inert until a consumer opts in.
-      '';
-    };
-
-    user = mkOption {
-      type = types.str;
-      default = "root";
-      description = ''
-        System user that runs the Hermes Agent gateway. Defaults to `root`:
-        the agent-first stance is that the agent runs with full privileges and
-        never prompts for sudo. A consumer may override to a lesser-privileged
-        user if they prefer.
-      '';
-    };
-
-    settings = mkOption {
-      type = types.attrsOf types.anything;
-      default = { };
-      description = ''
-        Hermes Agent configuration (deep-merged into `services.hermes-agent.settings`
-        and rendered as config.yaml). Personal-fact-free by default.
-        Consumers MUST set the model provider, e.g.:
-          hermetixos.agent.settings.model = "provider/model";
-        and may add any other Hermes settings here.
-      '';
-    };
-
-    desktop = {
+  options = with lib; {
+    hermetixos.agent = {
       enable = mkOption {
         type = types.bool;
         default = false;
         description = ''
-          Install the Hermes Desktop (Electron) application system-wide and point
-          it at the shared agent backend. Every user, present or future, gets the
-          desktop app and connects to the same gateway. A session token is
-          auto-generated at activation into a world-readable runtime path.
+          Whether to enable the Hermes Agent gateway on this system.
+          Disabled by default so the distro is inert until a consumer opts in.
         '';
       };
 
-      host = mkOption {
+      user = mkOption {
         type = types.str;
-        default = "127.0.0.1";
-        description = "Address the desktop uses to reach the agent backend.";
+        default = "root";
+        description = ''
+          System user that runs the Hermes Agent gateway. Defaults to `root`:
+          the agent-first stance is that the agent runs with full privileges and
+          never prompts for sudo. A consumer may override to a lesser-privileged
+          user if they prefer.
+        '';
       };
 
-      port = mkOption {
-        type = types.port;
-        default = 9119;
-        description = "Port the desktop uses to reach the agent backend.";
+      settings = mkOption {
+        type = types.attrsOf types.anything;
+        default = { };
+        description = ''
+          Hermes Agent configuration (deep-merged into `services.hermes-agent.settings`
+          and rendered as config.yaml). Personal-fact-free by default.
+          Consumers MUST set the model provider, e.g.:
+            hermetixos.agent.settings.model = "provider/model";
+          and may add any other Hermes settings here.
+        '';
+      };
+
+      desktop = {
+        enable = mkOption {
+          type = types.bool;
+          default = false;
+          description = ''
+            Install the Hermes Desktop (Electron) application system-wide and point
+            it at the shared agent backend. Every user, present or future, gets the
+            desktop app and connects to the same gateway. A session token is
+            auto-generated at activation into a world-readable runtime path.
+          '';
+        };
+
+        host = mkOption {
+          type = types.str;
+          default = "127.0.0.1";
+          description = "Address the desktop uses to reach the agent backend.";
+        };
+
+        port = mkOption {
+          type = types.port;
+          default = 9119;
+          description = "Port the desktop uses to reach the agent backend.";
+        };
       };
     };
   };
 
-  config = lib.mkIf config.hermetixos.agent.enable (lib.mkMerge [
-    {
+  config = lib.mkMerge [
+    (lib.mkIf config.hermetixos.agent.enable {
       services.hermes-agent = {
         enable = true;
         user = config.hermetixos.agent.user;
@@ -78,8 +80,8 @@
         addToSystemPackages = true;
         settings = config.hermetixos.agent.settings;
       };
-    }
-    (lib.mkIf config.hermetixos.agent.desktop.enable (let
+    })
+    (lib.mkIf (config.hermetixos.agent.enable && config.hermetixos.agent.desktop.enable) (let
       desktopCfg = config.hermetixos.agent.desktop;
       tokenFile = "${config.services.hermes-agent.stateDir}/desktop-token";
       desktopPackage = (hermes-agent.packages.${pkgs.stdenv.hostPlatform.system}.desktop).override {
@@ -112,5 +114,5 @@
         chmod 0644 "$token_file"
       '';
     }))
-  ]);
+  ];
 }

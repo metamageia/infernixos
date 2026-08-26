@@ -2,4 +2,4 @@ This is the distro production repo for HermetixOS, an opinionated config/distro 
 
 Do not leave comments in code.
 
-Only maintain two modules: The nixosModule and the homeManagerModule. If it's core HermetixOS functionality, it goes in the nixosModule. If it's desktop/user/rice functionality like DE/WM/Aesthetic, it goes in HM module.
+Only maintain two OUTPUT modules (you may have multiple modules in-repo where compartmentalizing functionality is useful and appropriate): The nixosModule and the homeManagerModule. If it's core HermetixOS functionality, it goes in the nixosModule. If it's desktop/user/rice functionality like DE/WM/Aesthetic, it goes in HM module.
