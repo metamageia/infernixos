@@ -61,6 +61,7 @@ in
         git
         niri
         fuzzel
+        nh
       ];
 
       home.sessionVariables = {
