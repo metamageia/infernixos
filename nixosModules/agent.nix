@@ -73,6 +73,7 @@
       services.hermes-agent = {
         enable = true;
         user = config.hermetixos.agent.user;
+        group = config.hermetixos.agent.user;
         createUser = config.hermetixos.agent.user != "root";
         addToSystemPackages = true;
         settings = config.hermetixos.agent.settings;
