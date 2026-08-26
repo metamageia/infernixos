@@ -4,14 +4,8 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
-    home-manager = {
-      url = "github:nix-community/home-manager";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
-
     hermes-agent = {
       url = "github:NousResearch/hermes-agent";
-      inputs.nixpkgs.follows = "nixpkgs";
     };
   };
 
@@ -19,7 +13,6 @@
     {
       self,
       nixpkgs,
-      home-manager,
       hermes-agent,
       ...
     }:
@@ -30,7 +23,6 @@
           inherit hermes-agent;
         };
         modules = [
-          home-manager.nixosModules.home-manager
           ./modules/hermes-agent.nix
         ];
       };
