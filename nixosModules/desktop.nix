@@ -14,10 +14,9 @@ in
       type = types.bool;
       default = false;
       description = ''
-        Enable the system-level graphical session glue: a lightweight greetd
-        display manager that launches the user's Wayland session. This only
-        wires the systemd service; the actual desktop/WM (e.g. niri) comes
-        from the home-manager module.
+        Enable the hermetixos desktop experience: a lightweight greetd display
+        manager launching the niri Wayland compositor, plus the curated set of
+        user-facing applications (niri, fuzzel, and the base tool set).
       '';
     };
 
@@ -44,5 +43,7 @@ in
         };
       };
     };
+
+    environment.systemPackages = with pkgs; [ niri fuzzel ];
   };
 }

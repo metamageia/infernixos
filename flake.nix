@@ -24,11 +24,12 @@
     }:
     {
       nixosModules = {
-        default = import ./nixosModules/default.nix;
+        system = import ./nixosModules/system.nix;
+        desktop = import ./nixosModules/desktop.nix;
       };
 
       homeManagerModules = {
-        default = import ./homeManagerModules/default.nix;
+        desktop = import ./homeManagerModules/desktop.nix;
       };
 
       nixosConfigurations.hermetixos = nixpkgs.lib.nixosSystem {
@@ -37,7 +38,7 @@
           inherit hermes-agent;
         };
         modules = [
-          self.nixosModules.default
+          self.nixosModules.system
         ];
       };
     };

@@ -9,15 +9,16 @@ let
   inherit (lib) mkIf mkOption mkMerge types;
 in
 {
-  options.hermetixos.home = {
+  options.hermetixos.desktop = {
     enable = mkOption {
       type = types.bool;
       default = false;
       description = ''
-        Enable the hermetixos curated home-manager environment. This is the
-        "rice": a coherent set of user-level applications, shell config and
-        styling layered on top of the system-level agentic OS. Disabled by
-        default so consumers can bring their own DE/WM and home setup.
+        Enable the hermetixos user-level desktop environment: the curated set
+        of home-manager applications, shell config and styling. Pairs with the
+        system-level desktop module (greetd + niri + fuzzel) for the full
+        experience. Disabled by default so consumers can bring their own
+        home setup.
       '';
     };
 
@@ -51,7 +52,7 @@ in
     };
   };
 
-  config = mkIf config.hermetixos.home.enable (mkMerge [
+  config = mkIf config.hermetixos.desktop.enable (mkMerge [
     {
       home.packages = with pkgs; [
         htop
@@ -59,8 +60,6 @@ in
         fd
         jq
         git
-        niri
-        fuzzel
         nh
       ];
 
@@ -69,7 +68,7 @@ in
       };
     }
 
-    (mkIf config.hermetixos.home.shell.enable {
+    (mkIf config.hermetixos.desktop.shell.enable {
       programs.bash.enable = true;
     })
   ]);
