@@ -9,7 +9,7 @@
 {
   imports = [ hermes-agent.nixosModules.default ];
 
-  options.hermetixos.system = with lib; {
+  options.infernixos.system = with lib; {
     enable = mkOption {
       type = types.bool;
       default = false;
@@ -37,7 +37,7 @@
         Hermes Agent configuration (deep-merged into `services.hermes-agent.settings`
         and rendered as config.yaml). Personal-fact-free by default.
         Consumers MUST set the model provider, e.g.:
-          hermetixos.system.settings.model = "provider/model";
+          infernixos.system.settings.model = "provider/model";
         and may add any other Hermes settings here.
       '';
     };
@@ -69,18 +69,18 @@
   };
 
   config = lib.mkMerge [
-    (lib.mkIf config.hermetixos.system.enable {
+    (lib.mkIf config.infernixos.system.enable {
       services.hermes-agent = {
         enable = true;
-        user = config.hermetixos.system.user;
-        group = config.hermetixos.system.user;
-        createUser = config.hermetixos.system.user != "root";
+        user = config.infernixos.system.user;
+        group = config.infernixos.system.user;
+        createUser = config.infernixos.system.user != "root";
         addToSystemPackages = true;
-        settings = config.hermetixos.system.settings;
+        settings = config.infernixos.system.settings;
       };
     })
-    (lib.mkIf (config.hermetixos.system.enable && config.hermetixos.system.desktop.enable) (let
-      desktopCfg = config.hermetixos.system.desktop;
+    (lib.mkIf (config.infernixos.system.enable && config.infernixos.system.desktop.enable) (let
+      desktopCfg = config.infernixos.system.desktop;
       tokenFile = "${config.services.hermes-agent.stateDir}/desktop-token";
       desktopPackage = (hermes-agent.packages.${pkgs.stdenv.hostPlatform.system}.desktop).override {
         extraEnv = {
@@ -104,7 +104,7 @@
 
       environment.systemPackages = [ desktopPackage ];
 
-      system.activationScripts.hermetixos-desktop-token = lib.stringAfter [ "users" ] ''
+      system.activationScripts.infernixos-desktop-token = lib.stringAfter [ "users" ] ''
         token_file=${tokenFile}
         if [ ! -e "$token_file" ]; then
           ${pkgs.openssl}/bin/openssl rand -hex 32 > "$token_file"

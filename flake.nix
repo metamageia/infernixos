@@ -1,5 +1,5 @@
 {
-  description = "hermetixos — Hermes-first NixOS distro";
+  description = "infernixos — Hermes-first NixOS distro";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
@@ -32,7 +32,7 @@
         desktop = import ./homeManagerModules/desktop.nix;
       };
 
-      nixosConfigurations.hermetixos = nixpkgs.lib.nixosSystem {
+      nixosConfigurations.infernixos = nixpkgs.lib.nixosSystem {
         system = "x86_64-linux";
         specialArgs = {
           inherit hermes-agent;

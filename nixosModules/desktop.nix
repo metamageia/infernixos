@@ -9,12 +9,12 @@ let
   inherit (lib) mkIf mkOption types;
 in
 {
-  options.hermetixos.desktop = {
+  options.infernixos.desktop = {
     enable = mkOption {
       type = types.bool;
       default = false;
       description = ''
-        Enable the hermetixos desktop experience: a lightweight greetd display
+        Enable the infernixos desktop experience: a lightweight greetd display
         manager launching the niri Wayland compositor, plus the curated set of
         user-facing applications (niri, fuzzel, and the base tool set).
       '';
@@ -33,13 +33,13 @@ in
     };
   };
 
-  config = mkIf config.hermetixos.desktop.enable {
+  config = mkIf config.infernixos.desktop.enable {
     services.greetd = {
       enable = true;
       settings = {
         default_session = {
-          command = "${pkgs.niri}/bin/${config.hermetixos.desktop.session}";
-          user = config.hermetixos.desktop.user;
+          command = "${pkgs.niri}/bin/${config.infernixos.desktop.session}";
+          user = config.infernixos.desktop.user;
         };
       };
     };

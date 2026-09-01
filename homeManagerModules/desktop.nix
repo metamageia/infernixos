@@ -9,12 +9,12 @@ let
   inherit (lib) mkIf mkOption mkMerge types;
 in
 {
-  options.hermetixos.desktop = {
+  options.infernixos.desktop = {
     enable = mkOption {
       type = types.bool;
       default = false;
       description = ''
-        Enable the hermetixos user-level desktop environment: the curated set
+        Enable the infernixos user-level desktop environment: the curated set
         of home-manager applications, shell config and styling. Pairs with the
         system-level desktop module (greetd + niri + fuzzel) for the full
         experience. Disabled by default so consumers can bring their own
@@ -25,7 +25,7 @@ in
     shell.enable = mkOption {
       type = types.bool;
       default = true;
-      description = "Enable the hermetixos default shell environment.";
+      description = "Enable the infernixos default shell environment.";
     };
 
     apps = mkOption {
@@ -52,7 +52,7 @@ in
     };
   };
 
-  config = mkIf config.hermetixos.desktop.enable (mkMerge [
+  config = mkIf config.infernixos.desktop.enable (mkMerge [
     {
       home.packages = with pkgs; [
         htop
@@ -68,7 +68,7 @@ in
       };
     }
 
-    (mkIf config.hermetixos.desktop.shell.enable {
+    (mkIf config.infernixos.desktop.shell.enable {
       programs.bash.enable = true;
     })
   ]);
