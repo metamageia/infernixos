@@ -18,6 +18,7 @@ let
     [ -n "$wp" ] || exit 0
     [ -f "$wp" ] || { echo "wallust-apply: not a file: $wp" >&2; exit 1; }
     mkdir -p "${wallustDir}"
+    mkdir -p "${configHome}/zen/default/chrome"
     ${pkgs.wallust}/bin/wallust run --config-dir "${wallustDir}" "$wp"
     echo "$wp" > "${stateFile}"
     export WAYLAND_DISPLAY="''${WAYLAND_DISPLAY:-wayland-1}"
@@ -106,6 +107,7 @@ in
       niri = { template = "niri.tmpl", target = "${configHome}/niri/colors.kdl" }
       quickshell = { template = "quickshell.tmpl", target = "${configHome}/quickshell/wallust-palette.json" }
       pyre = { template = "pyre.tmpl", target = "${configHome}/pyre/Theme.qml" }
+      zen = { template = "zen.tmpl", target = "${configHome}/zen/default/chrome/userChrome.css" }
     '' + lib.concatMapStringsSep "" (l: "${l}\n") extraLines;
 
     systemd.user.services.awww = {
@@ -261,6 +263,159 @@ in
           property color color13: "{{color13}}"
           property color color14: "{{color14}}"
           property color color15: "{{color15}}"
+      }
+    '';
+
+    home.file."${wallustDir}/templates/zen.tmpl".text = ''
+      /* wallust — recolor Zen Browser chrome to the active wallpaper. */
+      :root {
+        color-scheme: dark !important;
+        --toolbar-color-scheme: dark !important;
+        --zen-border-radius: 0px !important;
+        --zen-primary-color: {{color5}} !important;
+        --zen-primary: {{color5}} !important;
+        --zen-colors-secondary: {{color0}} !important;
+        --zen-colors-tertiary: {{color0}} !important;
+        --zen-main-browser-background: {{background}} !important;
+        --zen-main-browser-background-toolbar: {{background}} !important;
+        --zen-themed-toolbar-bg: {{background}} !important;
+      }
+      * {
+        color-scheme: dark !important;
+        --toolbar-color-scheme: dark !important;
+      }
+      /* Off-white wash behind the viewport -> transparent */
+      #tabbrowser-tabpanels browser,
+      #tabbrowser-tabpanels browser#content {
+        background-color: transparent !important;
+      }
+      /* White background layers -> wallust background */
+      #zen-main-app-wrapper,
+      #zen-toolbar-background,
+      #sidebar-container,
+      #sidebar-launcher-splitter {
+        background-color: {{background}} !important;
+      }
+      #zen-toolbar-background {
+        --zen-main-browser-background-toolbar: {{background}} !important;
+      }
+      /* Light frame/border + default-theme gradient */
+      #navigator-toolbox {
+        outline: none !important;
+        background-image: none !important;
+      }
+      #zen-toolbar-background,
+      #zen-main-app-wrapper {
+        background-image: none !important;
+      }
+      /* Reveal-on-hover navbar wrapper + container */
+      #zen-appcontent-navbar-wrapper,
+      #zen-appcontent-navbar-container,
+      #zen-appcontent-navbar-container .titlebar-buttonbox-container,
+      #zen-appcontent-navbar-container .titlebar-buttonbox {
+        background-color: {{background}} !important;
+        background-image: none !important;
+        color-scheme: dark !important;
+        color: {{foreground}} !important;
+      }
+      #zen-appcontent-wrapper,
+      #zen-tabbox-wrapper {
+        background-color: {{background}} !important;
+        background-image: none !important;
+        color-scheme: dark !important;
+        color: {{foreground}} !important;
+      }
+      /* Sidebar splitter */
+      #zen-sidebar-splitter {
+        background-color: {{background}} !important;
+        border-color: transparent !important;
+        color: {{foreground}} !important;
+        border-radius: 0 !important;
+        opacity: 1 !important;
+      }
+      /* Root foreground so currentColor resolves dark */
+      #main-window,
+      body {
+        color: {{foreground}} !important;
+      }
+      /* Main chrome / frame / tab strip / nav bar */
+      #navigator-toolbox,
+      #TabsToolbar,
+      #tabbrowser-tabs,
+      #tabbrowser-arrowscrollbox,
+      #nav-bar,
+      #PersonalToolbar {
+        background-color: {{background}} !important;
+        color: {{foreground}} !important;
+      }
+      /* Tabs: inactive muted surface, active accent */
+      #tabbrowser-tabs .tabbrowser-tab .tab-background {
+        background-color: {{color8}} !important;
+      }
+      #tabbrowser-tabs .tabbrowser-tab[selected] .tab-background {
+        background-color: {{color5}} !important;
+      }
+      #tabbrowser-tabs .tab-content {
+        color: {{foreground}} !important;
+      }
+      /* URL bar: muted surface + dark */
+      #urlbar-background,
+      #urlbar,
+      .urlbar-input-container {
+        background-color: {{color8}} !important;
+        color: {{foreground}} !important;
+        color-scheme: dark !important;
+        background-image: none !important;
+      }
+      /* Search-dialog / floating urlbar: kill translucent ghost rectangle */
+      #urlbar[breakout-extend] .urlbar-background,
+      #urlbar[zen-floating-urlbar="true"] .urlbar-background,
+      #urlbar[breakout] .urlbar-background {
+        --zen-urlbar-background-base: {{color8}} !important;
+        --zen-urlbar-background-transparent: {{color8}} !important;
+        background-color: {{color8}} !important;
+        background-image: none !important;
+        box-shadow: none !important;
+        backdrop-filter: none !important;
+        outline: none !important;
+      }
+      /* Sidebar webpanels backdrop */
+      #sidebar,
+      #sidebar-box {
+        background-color: {{background}} !important;
+        color: {{foreground}} !important;
+      }
+      /* Flatten all rounded surfaces (radius is hardcoded 8px on the stack) */
+      body,
+      #zen-main-app-wrapper,
+      #zen-browser-background,
+      #main-window,
+      #tabbrowser-tabpanels .browserSidebarContainer,
+      #tabbrowser-tabpanels deck,
+      #tabbrowser-tabpanels .browserStack,
+      #tabbrowser-tabpanels .browserSidebarContainer .browserStack,
+      #sidebar-box,
+      #sidebar {
+        border-radius: 0 !important;
+      }
+      /* Sidebar header/footer bands */
+      #sidebar-box #titlebar,
+      #sidebar-box .sidebar-header,
+      #sidebar-box #zen-sidebar-top-buttons,
+      #zen-sidebar-top-buttons,
+      #sidebar-box #zen-sidebar-bottom-buttons,
+      #zen-sidebar-bottom-buttons {
+        background-color: {{background}} !important;
+        background-image: none !important;
+        border: none !important;
+        color-scheme: dark !important;
+        color: {{foreground}} !important;
+      }
+      #navigator-toolbox:not([animate='true']) #titlebar::before {
+        outline: 0px !important;
+      }
+      #navigator-toolbox toolbarbutton {
+        color: {{foreground}} !important;
       }
     '';
     }

@@ -2,6 +2,7 @@
   config,
   lib,
   pkgs,
+  inputs,
   ...
 }:
 
@@ -28,6 +29,7 @@ let
 in
 {
   imports = [
+    inputs.zen-browser.homeModules.default
     ./theming.nix
     ./bar.nix
   ];
@@ -71,7 +73,9 @@ in
         Granular per-application toggles. Each curated key installs its themed
         package when set to true; override `package` to substitute a different
         build. Curated applications: pyre (PySide6+QML file manager), fuzzel
-        (launcher), kitty (terminal), quickshell (status bar).
+        (launcher), kitty (terminal), quickshell (status bar), zen-browser
+        (web browser, wallust-themed; `apps.zen.enable` also applies the
+        wallust zen.tmpl to the default profile's userChrome.css).
       '';
     };
   };
@@ -91,6 +95,16 @@ in
         EDITOR = "nano";
       };
     }
+
+    (mkIf cfg.apps.zen.enable {
+      programs.zen-browser = {
+        enable = true;
+        profiles.default.settings = {
+          "toolkit.legacyUserProfileCustomizations.stylesheets" = true;
+          "zen.urlbar.open-on-startup" = false;
+        };
+      };
+    })
 
     (mkIf cfg.shell.enable {
       programs.bash.enable = true;
