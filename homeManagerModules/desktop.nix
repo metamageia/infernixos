@@ -6,9 +6,31 @@
 }:
 
 let
-  inherit (lib) mkIf mkOption mkMerge types;
+  inherit (lib) mkIf mkMerge mkOption types;
+  cfg = config.infernixos.desktop;
+
+  curatedApps = {
+    pyre = pkgs.callPackage ../packages/pyre/package.nix { };
+    fuzzel = pkgs.fuzzel;
+    kitty = pkgs.kitty;
+    quickshell = pkgs.quickshell;
+  };
+
+  installedApps = lib.concatLists (
+    lib.mapAttrsToList (name: defaultPackage:
+      let
+        app = cfg.apps.${name};
+      in
+      lib.optional (app.enable) (if app.package != null then app.package else defaultPackage)
+    ) curatedApps
+  );
 in
 {
+  imports = [
+    ./theming.nix
+    ./bar.nix
+  ];
+
   options.infernixos.desktop = {
     enable = mkOption {
       type = types.bool;
@@ -45,14 +67,15 @@ in
       });
       default = { };
       description = ''
-        Granular per-application toggles. Each key enables a curated
-        application when set to true. Override `package` to substitute a
-        different package.
+        Granular per-application toggles. Each curated key installs its themed
+        package when set to true; override `package` to substitute a different
+        build. Curated applications: pyre (PySide6+QML file manager), fuzzel
+        (launcher), kitty (terminal), quickshell (status bar).
       '';
     };
   };
 
-  config = mkIf config.infernixos.desktop.enable (mkMerge [
+  config = mkIf cfg.enable (mkMerge [
     {
       home.packages = with pkgs; [
         htop
@@ -61,14 +84,14 @@ in
         jq
         git
         nh
-      ];
+      ] ++ installedApps;
 
       home.sessionVariables = {
         EDITOR = "nano";
       };
     }
 
-    (mkIf config.infernixos.desktop.shell.enable {
+    (mkIf cfg.shell.enable {
       programs.bash.enable = true;
     })
   ]);

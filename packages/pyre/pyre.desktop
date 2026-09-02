@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=pyre
+Comment=Near-1:1 Dolphin file manager in PySide6 + QML
+Exec=pyre
+Icon=system-file-manager
+Terminal=false
+Categories=Utility;FileManager;
