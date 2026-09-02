@@ -14,35 +14,35 @@ in
       type = types.bool;
       default = false;
       description = ''
-        Enable the infernixos system-level desktop components: a lightweight
-        greetd display manager launching the configured Wayland session (niri).
-        User-facing applications (niri, fuzzel) are provided by the
-        home-manager desktop module.
+        Enable the SDDM display manager, which presents the login screen and
+        launches the user's compositor session (default: niri). GUI apps such
+        as niri and fuzzel are provided by the home-manager module, not here.
       '';
-    };
-
-    user = mkOption {
-      type = types.str;
-      default = "root";
-      description = "User the graphical session logs into by default.";
     };
 
     session = mkOption {
       type = types.str;
-      default = "niri-session";
-      description = "The Wayland session command to launch under greetd.";
+      default = "niri";
+      description = "The compositor session SDDM launches by default.";
     };
   };
 
   config = mkIf config.infernixos.desktop.enable {
-    services.greetd = {
+    services.displayManager.sddm = {
       enable = true;
-      settings = {
-        default_session = {
-          command = "${pkgs.niri}/bin/${config.infernixos.desktop.session}";
-          user = config.infernixos.desktop.user;
-        };
-      };
+      wayland.enable = true;
     };
+
+    services.displayManager.defaultSession = config.infernixos.desktop.session;
+
+    environment.systemPackages = with pkgs; [
+      (pkgs.writeTextDir "share/wayland-sessions/${config.infernixos.desktop.session}.desktop" ''
+        [Desktop Entry]
+        Name=${config.infernixos.desktop.session}
+        Comment=${config.infernixos.desktop.session} compositor session
+        Exec=${pkgs.niri}/bin/${config.infernixos.desktop.session}-session
+        Type=Application
+      '')
+    ];
   };
 }
