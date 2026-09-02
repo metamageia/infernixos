@@ -13,6 +13,7 @@ let
     pyre = pkgs.callPackage ../packages/pyre/package.nix { };
     fuzzel = pkgs.fuzzel;
     kitty = pkgs.kitty;
+    niri = pkgs.niri;
     quickshell = pkgs.quickshell;
   };
 

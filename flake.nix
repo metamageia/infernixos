@@ -4,10 +4,6 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
-    hermes-agent = {
-      url = "github:NousResearch/hermes-agent";
-    };
-
     home-manager = {
       url = "github:nix-community/home-manager";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -18,7 +14,6 @@
     {
       self,
       nixpkgs,
-      hermes-agent,
       home-manager,
       ...
     }:
@@ -40,9 +35,6 @@
 
       nixosConfigurations.infernixos = nixpkgs.lib.nixosSystem {
         inherit system;
-        specialArgs = {
-          inherit hermes-agent;
-        };
         modules = [
           self.nixosModules.system
         ];
