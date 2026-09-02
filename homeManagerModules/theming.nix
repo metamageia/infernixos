@@ -6,22 +6,22 @@
 }:
 
 let
-  inherit (lib) mkIf mkOption types;
+  inherit (lib) mkIf mkMerge mkOption types;
   cfg = config.infernixos.desktop.theming;
   configHome = config.xdg.configHome;
   wallustDir = "${configHome}/wallust";
+  stateFile = "${wallustDir}/last-wallpaper";
 
   applyScript = pkgs.writeShellScriptBin "wallust-apply" ''
     set -euo pipefail
     wp="$1"
     [ -n "$wp" ] || exit 0
     [ -f "$wp" ] || { echo "wallust-apply: not a file: $wp" >&2; exit 1; }
-    for d in fuzzel kitty niri quickshell pyre; do
-      mkdir -p "$XDG_CONFIG_HOME/$d"
-    done
     mkdir -p "${wallustDir}"
     ${pkgs.wallust}/bin/wallust run --config-dir "${wallustDir}" "$wp"
-    echo "$wp" > "${wallustDir}/last-wallpaper"
+    echo "$wp" > "${stateFile}"
+    export WAYLAND_DISPLAY="''${WAYLAND_DISPLAY:-wayland-1}"
+    ${pkgs.awww}/bin/awww img "$wp" --transition-type wipe --transition-angle 45 --transition-duration 0.8 || true
     ${pkgs.libnotify}/bin/notify-send "wallust" "Themed from $(basename "$wp")" 2>/dev/null || true
   '';
 
@@ -35,6 +35,8 @@ let
     [ -n "$choice" ] || exit 0
     exec ${applyScript}/bin/wallust-apply "$WP_DIR/$choice"
   '';
+
+  extraLines = lib.mapAttrsToList (name: t: "${name} = { template = \"${name}.tmpl\", target = \"${t.target}\" }") cfg.extraTemplates;
 in
 {
   options.infernixos.desktop.theming = {
@@ -42,9 +44,12 @@ in
       type = types.bool;
       default = false;
       description = ''
-        Enable wallust dynamic theming: derives a palette from the active
-        wallpaper and renders curated templates for fuzzel, kitty, niri,
-        quickshell and pyre. Template targets live under the user config dir.
+        Enable the infernixos autotheming engine: derives a palette from the
+        active wallpaper with wallust and live-applies it system-wide. Ships
+        the awww animated-wallpaper daemon, systemd user services that restore
+        the last wallpaper on login, and curated templates for fuzzel, kitty,
+        niri, quickshell and pyre. Additional app targets (browsers, editors,
+        chat) are added via `targets`.
       '';
     };
 
@@ -57,13 +62,38 @@ in
         still themes from any image path passed to it.
       '';
     };
+
+    extraTemplates = mkOption {
+      type = types.attrsOf (types.submodule {
+        options = {
+          target = mkOption {
+            type = types.str;
+            description = "Absolute path wallust writes the rendered template to.";
+          };
+          text = mkOption {
+            type = types.str;
+            description = "Template body, using {{background}}, {{foreground}}, {{color0}}..{{color15}} placeholders.";
+          };
+        };
+      });
+      default = { };
+      description = ''
+        Extra wallust templates rendered alongside the curated set. Each key is
+        a template name; `target` is the absolute path wallust writes to and
+        `text` is the template body. Lets a consumer point wallust at any app
+        whose config lives outside the wallust config dir (browser chrome,
+        editor snippets, daemon skins) while keeping the repo generic.
+      '';
+    };
   };
 
-  config = mkIf cfg.enable {
+  config = mkIf cfg.enable (mkMerge [
+    {
     home.packages =
       with pkgs;
       [
         wallust
+        awww
         libnotify
         applyScript
       ]
@@ -76,7 +106,40 @@ in
       niri = { template = "niri.tmpl", target = "${configHome}/niri/colors.kdl" }
       quickshell = { template = "quickshell.tmpl", target = "${configHome}/quickshell/wallust-palette.json" }
       pyre = { template = "pyre.tmpl", target = "${configHome}/pyre/Theme.qml" }
-    '';
+    '' + lib.concatMapStringsSep "" (l: "${l}\n") extraLines;
+
+    systemd.user.services.awww = {
+      Unit = {
+        Description = "awww animated wallpaper daemon";
+        After = [ "graphical-session.target" ];
+        Requisite = [ "graphical-session.target" ];
+        PartOf = [ "graphical-session.target" ];
+      };
+      Service = {
+        ExecStart = "${pkgs.awww}/bin/awww-daemon --format xrgb";
+        Restart = "on-failure";
+      };
+      Install = {
+        WantedBy = [ "graphical-session.target" ];
+      };
+    };
+
+    systemd.user.services.awww-wallpaper = {
+      Unit = {
+        Description = "Restore last wallpaper at session start";
+        After = [ "awww.service" "graphical-session.target" ];
+        Wants = [ "awww.service" ];
+        Requisite = [ "graphical-session.target" ];
+        PartOf = [ "graphical-session.target" ];
+      };
+      Service = {
+        ExecStart = "${pkgs.bash}/bin/bash -c 'if [ -f \"${stateFile}\" ]; then ${pkgs.awww}/bin/awww img \"$(cat \"${stateFile}\")\" --transition-type center; fi'";
+        Restart = "on-failure";
+      };
+      Install = {
+        WantedBy = [ "graphical-session.target" ];
+      };
+    };
 
     home.file."${wallustDir}/templates/fuzzel.tmpl".text = ''
       [main]
@@ -200,5 +263,11 @@ in
           property color color15: "{{color15}}"
       }
     '';
-  };
+    }
+    {
+      home.file = lib.mapAttrs' (name: t:
+        lib.nameValuePair "${wallustDir}/templates/${name}.tmpl" { text = t.text; }
+      ) cfg.extraTemplates;
+    }
+  ]);
 }
