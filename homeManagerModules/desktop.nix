@@ -39,7 +39,7 @@ in
       description = ''
         Enable the infernixos user-level desktop environment: the curated set
         of home-manager applications, shell config and styling. Pairs with the
-        system-level desktop module (greetd + niri + fuzzel) for the full
+        system-level desktop module (greetd) for the full
         experience. Disabled by default so consumers can bring their own
         home setup.
       '';

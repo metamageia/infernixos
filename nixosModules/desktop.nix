@@ -14,9 +14,10 @@ in
       type = types.bool;
       default = false;
       description = ''
-        Enable the infernixos desktop experience: a lightweight greetd display
-        manager launching the niri Wayland compositor, plus the curated set of
-        user-facing applications (niri, fuzzel, and the base tool set).
+        Enable the infernixos system-level desktop components: a lightweight
+        greetd display manager launching the configured Wayland session (niri).
+        User-facing applications (niri, fuzzel) are provided by the
+        home-manager desktop module.
       '';
     };
 
@@ -43,7 +44,5 @@ in
         };
       };
     };
-
-    environment.systemPackages = with pkgs; [ niri fuzzel ];
   };
 }
