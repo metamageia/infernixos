@@ -41,6 +41,17 @@ ApplicationWindow {
         }
         function onStatusChanged(s) { status.text = s }
         function onTabChanged(i) { tabRepeater.model = controller.tabPathsProp }
+        // No default app for a file → raise the Open-With chooser (friendly
+        // for newcomers: never a silent no-op, and it can remember the choice).
+        function onOpenWithRequested(path, mime) {
+            openWithDlg.targetPath = path
+            openWithDlg.targetMime = mime
+            openWithAppModel.clear()
+            var apps = controller.appsForMime(mime)
+            for (var i = 0; i < apps.length; i++) openWithAppModel.append(apps[i])
+            openWithDlg.title = "Open " + path.split("/").pop() + " with…"
+            openWithDlg.open()
+        }
     }
 
     // ============ MENU BAR ============
@@ -413,6 +424,86 @@ ApplicationWindow {
     AdvancedSearchDialog {
         id: advDlg
         th: th
+    }
+
+    // ---- Open With… chooser: no default app for a file type, ask the user ----
+    Dialog {
+        id: openWithDlg
+        property string targetPath: ""
+        property string targetMime: ""
+        modal: true
+        width: 460
+        height: 420
+        standardButtons: Dialog.Open | Dialog.Cancel
+        // friendly copy so a newcomer isn't met with a bare list
+        header: Label {
+            text: "Which application should open this file?"
+            color: th.fg
+            font.bold: true
+            leftPadding: 20
+            topPadding: 12
+            bottomPadding: 6
+        }
+        ColumnLayout {
+            anchors.fill: parent
+            anchors.margins: 12
+            spacing: 8
+            ListView {
+                id: openWithList
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                clip: true
+                model: ListModel { id: openWithAppModel }
+                currentIndex: 0
+                focus: true
+                delegate: ItemDelegate {
+                    width: openWithList.width
+                    highlighted: ListView.isCurrentItem
+                    onClicked: openWithList.currentIndex = index
+                    onDoubleClicked: openWithDlg.accept()
+                    contentItem: RowLayout {
+                        spacing: 10
+                        Image {
+                            source: model.icon !== "" ? "image://theme/" + model.icon : "image://theme/application-x-executable"
+                            Layout.preferredWidth: 22
+                            Layout.preferredHeight: 22
+                            fillMode: Image.PreserveAspectFit
+                        }
+                        Text {
+                            text: model.name
+                            color: th.fg
+                            elide: Text.ElideMiddle
+                            Layout.fillWidth: true
+                        }
+                    }
+                }
+                // friendly empty state instead of a bare blank dialog
+                Rectangle {
+                    anchors.fill: parent
+                    visible: openWithAppModel.count === 0
+                    color: th.hover
+                    radius: 6
+                    Label {
+                        anchors.centerIn: parent
+                        text: "No applications found for this file type."
+                        color: th.fg
+                        horizontalAlignment: Text.AlignHCenter
+                        wrapMode: Text.Wrap
+                    }
+                }
+            }
+            CheckBox {
+                id: rememberChk
+                text: "Always open this file type with the selected application"
+                checked: true
+            }
+        }
+        onAccepted: {
+            if (openWithList.currentIndex >= 0 && openWithAppModel.count > 0) {
+                var app = openWithAppModel.get(openWithList.currentIndex)
+                controller.openWith(openWithDlg.targetPath, app.id, rememberChk.checked)
+            }
+        }
     }
 
     Component.onCompleted: {

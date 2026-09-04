@@ -10,8 +10,11 @@ heavy part, so a Tab holds its own FileSystemModel.
 """
 from __future__ import annotations
 
+import fnmatch
+import mimetypes
 import os
 import queue
+import shlex
 import shutil
 import subprocess
 import threading
@@ -36,6 +39,195 @@ TEXT_EXTS = {
     ".ini", ".cfg", ".conf", ".xml", ".csv", ".tex", ".org", ".rst", ".sql",
     ".gitignore", ".env",
 }
+
+
+# ---- freedesktop app resolution (MIME → default app / Open-With list) ----
+
+def _desktop_dirs() -> list[Path]:
+    """Directories that can hold *.desktop entries, XDG order, user first."""
+    dirs = [Path.home() / ".local/share/applications"]
+    for d in os.environ.get("XDG_DATA_DIRS", "/usr/local/share:/usr/share").split(":"):
+        if d:
+            dirs.append(Path(d) / "applications")
+    dirs.append(Path("/usr/share/applications"))
+    seen: set[Path] = set()
+    out = []
+    for d in dirs:
+        if d not in seen:
+            seen.add(d)
+            out.append(d)
+    return out
+
+
+def _parse_desktop(f: Path) -> dict:
+    """Minimal .desktop parser — [Desktop Entry] keys we care about."""
+    entry: dict = {}
+    in_entry = False
+    try:
+        lines = f.read_text(errors="replace").splitlines()
+    except OSError:
+        return entry
+    for ln in lines:
+        ln = ln.strip()
+        if ln.startswith("[") and ln.endswith("]"):
+            in_entry = (ln == "[Desktop Entry]")
+            continue
+        if not in_entry or not ln or ln.startswith("#") or "=" not in ln:
+            continue
+        k, _, v = ln.partition("=")
+        entry[k.strip()] = v.strip()
+    return entry
+
+
+def _mime_matches(declared: str, mime: str) -> bool:
+    """Does the app's MimeType= (semicolon list, may use * globs) match?"""
+    return any(
+        p == mime or (p.endswith("*") and mime.startswith(p[:-1]))
+        for p in declared.split(";")
+        if p
+    )
+
+
+def _apps_for_mime(mime: str) -> list[dict]:
+    """Desktop entries declaring `mime`, as {id, name, icon} sorted by name."""
+    apps: dict[str, dict] = {}
+    for d in _desktop_dirs():
+        if not d.is_dir():
+            continue
+        for f in sorted(d.glob("*.desktop")):
+            if f.name in apps:
+                continue
+            e = _parse_desktop(f)
+            if not e.get("Exec"):
+                continue
+            if e.get("NoDisplay") == "true" or e.get("Hidden") == "true":
+                continue
+            if _mime_matches(e.get("MimeType", ""), mime):
+                apps[f.name] = {
+                    "id": f.name,
+                    "name": e.get("Name", f.stem),
+                    "icon": e.get("Icon", ""),
+                }
+    return sorted(apps.values(), key=lambda a: a["name"].lower())
+
+
+def _exec_cmd(entry: dict, desktop_file: Path, path: Path) -> list[str] | None:
+    """Expand a .desktop Exec line with the freedesktop field codes for one file."""
+    ex = entry.get("Exec", "")
+    if not ex:
+        return None
+    quoted = shlex.quote(str(path))
+    uri = path.as_uri()
+    has_file_code = any(c in ex for c in ("%f", "%F", "%u", "%U"))
+    ex = ex.replace("%f", quoted).replace("%F", quoted)
+    ex = ex.replace("%u", uri).replace("%U", uri)
+    if entry.get("Icon"):
+        ex = ex.replace("%i", f"--icon {shlex.quote(entry['Icon'])}")
+    else:
+        ex = ex.replace("%i", "")
+    ex = ex.replace("%c", shlex.quote(entry.get("Name", "")))
+    ex = ex.replace("%k", shlex.quote(str(desktop_file)))
+    for dep in ("%d", "%D", "%n", "%N", "%v", "%m"):
+        ex = ex.replace(dep, "")
+    if not has_file_code:
+        ex = f"{ex} {quoted}"
+    try:
+        return shlex.split(ex)
+    except ValueError:
+        return None
+
+
+def _launch_desktop(app_id: str, path: Path) -> bool:
+    """Find app_id's .desktop, expand its Exec for `path`, launch detached."""
+    for d in _desktop_dirs():
+        f = d / app_id
+        if not f.is_file():
+            continue
+        cmd = _exec_cmd(_parse_desktop(f), f, path)
+        if not cmd:
+            return False
+        try:
+            subprocess.Popen(
+                cmd,
+                start_new_session=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            return True
+        except OSError:
+            return False
+    return False
+
+
+def _set_default(mime: str, app_id: str) -> None:
+    """Persist app_id as the default for mime (xdg-mime, else write mimeapps.list)."""
+    try:
+        subprocess.run(
+            ["xdg-mime", "default", app_id, mime], timeout=10, check=True
+        )
+        return
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
+        pass
+    p = Path.home() / ".config" / "mimeapps.list"
+    try:
+        lines = p.read_text().splitlines() if p.exists() else []
+    except OSError:
+        lines = []
+    section = "[Default Applications]"
+    if section not in lines:
+        lines += ["", section]
+    key = f"{mime}={app_id}"
+    out: list[str] = []
+    in_sec, replaced = False, False
+    for ln in lines:
+        if ln == section:
+            in_sec = True
+            out.append(ln)
+            continue
+        if in_sec and ln.startswith("[") and ln != section:
+            in_sec = False
+        if in_sec and ln.startswith(mime + "="):
+            out.append(key)
+            replaced = True
+            continue
+        out.append(ln)
+    if not replaced:
+        for i, ln in enumerate(out):
+            if ln == section:
+                out.insert(i + 1, key)
+                break
+    try:
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text("\n".join(out) + "\n")
+    except OSError:
+        pass
+
+
+def _mime_for(p: Path) -> str:
+    """MIME type of a file — xdg-mime query, falling back to stdlib mimetypes."""
+    try:
+        r = subprocess.run(
+            ["xdg-mime", "query", "filetype", str(p)],
+            capture_output=True, text=True, timeout=10,
+        )
+        m = r.stdout.strip()
+        if m:
+            return m.split(";")[0].strip()
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+    return mimetypes.guess_type(str(p))[0] or "application/octet-stream"
+
+
+def _default_app(mime: str) -> str:
+    """Default app id for mime, or \"\" — xdg-mime query default."""
+    try:
+        r = subprocess.run(
+            ["xdg-mime", "query", "default", mime],
+            capture_output=True, text=True, timeout=10,
+        )
+        return r.stdout.strip().splitlines()[0].strip() if r.stdout.strip() else ""
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
 
 
 def preview_text(p: Path, limit: int = 4000) -> str:
@@ -142,6 +334,7 @@ class FileController(QObject):
     selectionChanged = Signal(int)  # count
     splitChanged = Signal(bool)
     previewChanged = Signal()
+    openWithRequested = Signal(str, str)  # path, mime — no default app set
 
     def __init__(self, settings=None):
         super().__init__()
@@ -454,7 +647,6 @@ class FileController(QObject):
             self.enterDir(row)
         else:
             self._open_file(p)
-
     @Slot(result="QString")
     def selectedName(self) -> str:
         """Name of the currently selected row (for dialogs)."""
@@ -679,9 +871,32 @@ class FileController(QObject):
             f"[Trash Info]\nPath={p}\nDeletionDate={os.popen('date -Iseconds').read().strip()}\n"
         )
 
+    # ---- open-with flow (freedesktop MIME resolution) ----
+    @Slot(str, result="QVariantList")
+    def appsForMime(self, mime: str):
+        """Apps that declare `mime` support, as [{id, name, icon}]."""
+        return _apps_for_mime(mime)
+
+    @Slot(str, str, bool)
+    def openWith(self, path: str, app_id: str, remember: bool):
+        """Open `path` with `app_id`; if remember, persist it as the default."""
+        p = Path(path)
+        mime = _mime_for(p)
+        if remember and mime:
+            _set_default(mime, app_id)
+        if not _launch_desktop(app_id, p):
+            self.statusChanged.emit(f"Could not launch {app_id}")
+
     def _open_file(self, p: Path):
-        # respect xdg-open; fall back to the default opener
-        os.system(f"xdg-open '{p}' &")
+        """Open a file with its default app; if none is set, ask the user
+        (emit openWithRequested so QML raises the Open-With chooser)."""
+        mime = _mime_for(p)
+        default = _default_app(mime)
+        if default:
+            if _launch_desktop(default, p):
+                return
+            # default app failed to launch — fall through to the chooser
+        self.openWithRequested.emit(str(p), mime)
 
 
 if __name__ == "__main__":
