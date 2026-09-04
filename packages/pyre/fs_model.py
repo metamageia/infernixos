@@ -422,6 +422,49 @@ class FileSystemModel(QAbstractListModel):
             self.clear_selection()
             self.set_selected(row, True)
 
+    @Slot("QVariantList")
+    def set_band(self, rows: list) -> None:
+        """Replace the whole selection with exactly `rows` (rubber-band marquee).
+
+        Live-updates during a drag: each onPositionChanged replaces the selected
+        set with the rows currently inside the band, so the highlight tracks the
+        box instead of only applying on release. A single dataChanged covers
+        the touched range.
+        """
+        sel = {int(r) for r in (rows or []) if 0 <= int(r) < len(self._entries)}
+        if sel == self._selected:
+            return
+        self._selected = sel
+        if not self._entries:
+            return
+        self.dataChanged.emit(self.index(0), self.index(len(self._entries) - 1))
+
+    @Slot(float, float, float, float, float, float, int, float, float, result="QVariantList")
+    def rows_in_rect(self, x: float, y: float, w: float, h: float,
+                     cell_w: float, cell_h: float, columns: int,
+                     ox: float, oy: float) -> list:
+        """Row indices whose grid cell overlaps the rect (viewport coords).
+
+        The band geometry and the item cells live in the SAME viewport space
+        (both are children of the view; scroll offset is ox/oy). This is the
+        source of truth for marquee selection — shared by QML and the headless
+        tests, so a broken rubber-band is caught in CI instead of only by hand.
+        """
+        if columns is None or columns <= 0:
+            # QML has no GridView.columns property; callers must pass the real
+            # column count. Default to 1 so a mis-wired caller degrades to a
+            # single-column band instead of crashing mid-drag.
+            columns = 1
+        cols = max(1, int(columns))
+        out = []
+        for i in range(len(self._entries)):
+            col, row = i % cols, i // cols
+            cx = col * cell_w - ox
+            cy = row * cell_h - oy
+            if cx < x + w and cx + cell_w > x and cy < y + h and cy + cell_h > y:
+                out.append(i)
+        return out
+
     @Slot(int, bool)
     def navigate(self, row: int, shift: bool = False, anchor: int | None = None) -> None:
         """Move keyboard current-row to `row`, clamping to valid bounds. With

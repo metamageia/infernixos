@@ -251,6 +251,15 @@ Item {
             property bool _drag: false
             property string _dragPath: ""
             readonly property int _dragThreshold: 10
+
+            // GridView has no `columns` property (it returns null/undefined in
+            // QML), and the marquee geometry maths NEED the real column count
+            // to map cells. Derive it from the grid's viewport width / cell
+            // width the same way GridView lays cells out left-to-right.
+            function colCount() {
+                return Math.max(1, Math.floor(grid.width / grid.cellWidth))
+            }
+
             onPressed: (mouse) => {
                 var r = grid.indexAt(mouse.x, mouse.y)
                 pressPt = Qt.point(mouse.x, mouse.y)
@@ -278,14 +287,20 @@ Item {
                 marqueeRect.x = x; marqueeRect.y = y
                 marqueeRect.width = Math.abs(mouse.x - pressPt.x)
                 marqueeRect.height = Math.abs(mouse.y - pressPt.y)
+                // live rubber-band: highlight follows the box while dragging
+                // (set_band replaces the selection; rows_in_rect shares the
+                // geometry maths with the headless tests)
+                fsModel.set_band(fsModel.rows_in_rect(
+                    x, y, marqueeRect.width, marqueeRect.height,
+                    grid.cellWidth, grid.cellHeight, marea.colCount(),
+                    grid.contentX, grid.contentY))
             }
             onReleased: (mouse) => {
                 if (marea.Drag.active) { marea.Drag.active = false; _drag = false; return }
                 if (marquee) {
                     marqueeRect.visible = false
-                    var sel = intersectRows(marqueeRect)
-                    for (var i = 0; i < sel.length; i++) fsModel.set_selected(sel[i], true)
                     marquee = false
+                    // selection already applied live during the drag
                     return
                 }
                 if (pressRow >= 0) {
@@ -299,22 +314,10 @@ Item {
                     isDir ? controller.enterDir(r) : controller.openRow(r)
                 }
             }
-            function intersectRows(rect) {
-                var cols = grid.columns > 0 ? grid.columns : 1
-                var out = []
-                for (var i = 0; i < fsModel.rowCount; i++) {
-                    var col = i % cols, row = (i / cols) | 0
-                    var cx = col * grid.cellWidth - grid.contentX
-                    var cy = row * grid.cellHeight - grid.contentY
-                    if (cx < rect.x + rect.width && cx + grid.cellWidth > rect.x &&
-                        cy < rect.y + rect.height && cy + grid.cellHeight > rect.y) out.push(i)
-                }
-                return out
-            }
             // arrow-key navigation + type-ahead
             Keys.onPressed: (event) => {
                 var cur = fsModel.currentRow
-                var cols = grid.columns > 0 ? grid.columns : 1
+                var cols = marea.colCount()
                 var target = -1
                 if (event.key === Qt.Key_Left)  target = cur - 1
                 else if (event.key === Qt.Key_Right) target = cur + 1
