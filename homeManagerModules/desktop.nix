@@ -32,6 +32,7 @@ in
     inputs.zen-browser.homeModules.default
     ./theming.nix
     ./bar.nix
+    ./hermes.nix
   ];
 
   options.infernixos.desktop = {

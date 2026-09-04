@@ -59,6 +59,7 @@ let
     export QUICKSHELL_WALLPAPERS_DIR="${
       if theming.wallpapersDir != null then toString theming.wallpapersDir else ""
     }"
+    export QUICKSHELL_HERMES_STATE="${toString cfg.hermesStateFile}"
     exec ${pkgs.quickshell}/bin/quickshell --config "${barConfig}"
   '';
 in
@@ -69,7 +70,17 @@ in
       default = false;
       description = ''
         Enable the wallust-themed quickshell status bar (workspaces, clock,
-        wifi, volume, tray). Requires the compositor to launch quickshell-bar.
+        hermes gateway status, wifi, volume, tray). Requires the compositor to
+        launch quickshell-bar.
+      '';
+    };
+
+    hermesStateFile = mkOption {
+      type = types.str;
+      default = "/var/lib/hermes/.hermes/gateway_state.json";
+      description = ''
+        The gateway's gateway_state.json, read by the bar's hermes widget.
+        Empty string hides live state (widget shows "hermes --").
       '';
     };
 

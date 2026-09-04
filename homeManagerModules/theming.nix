@@ -24,6 +24,19 @@ let
     export WAYLAND_DISPLAY="''${WAYLAND_DISPLAY:-wayland-1}"
     ${pkgs.awww}/bin/awww img "$wp" --transition-type wipe --transition-angle 45 --transition-duration 0.8 || true
     ${pkgs.libnotify}/bin/notify-send "wallust" "Themed from $(basename "$wp")" 2>/dev/null || true
+
+    # Hermes live-retheme: bump the skin's name field to the wallpaper basename.
+    # The gateway's skin watcher broadcasts skin.changed on name change and the
+    # desktop's apply guard is name-based, so this repaints the desktop live.
+    # wallust won't create the skins dir; skip quietly when the gateway/skins
+    # dir isn't present on this machine (non-Hermes consumers).
+    skins_dir="''${HERMES_SKINS_DIR:-/var/lib/hermes/.hermes/skins}"
+    if [ -d "$skins_dir" ] && [ -f "$skins_dir/wallust.yaml" ]; then
+      base="$(basename "$wp")"
+      skin_name="$(echo "''${base%.*}" | tr '[:upper:] ' '[:lower:]-' | tr -cd 'a-z0-9-')"
+      skin_name="''${skin_name:-wallust}"
+      sed -i "s/^name:.*/name: $skin_name/" "$skins_dir/wallust.yaml"
+    fi
   '';
 
   switchScript = pkgs.writeShellScriptBin "wallust-switch" ''
@@ -108,6 +121,7 @@ in
       quickshell = { template = "quickshell.tmpl", target = "${configHome}/quickshell/wallust-palette.json" }
       pyre = { template = "pyre.tmpl", target = "${configHome}/pyre/Theme.qml" }
       zen = { template = "zen.tmpl", target = "${configHome}/zen/default/chrome/userChrome.css" }
+      hermes = { template = "hermes.tmpl", target = "''${HERMES_SKINS_DIR:-/var/lib/hermes/.hermes/skins}/wallust.yaml" }
     '' + lib.concatMapStringsSep "" (l: "${l}\n") extraLines;
 
     systemd.user.services.awww = {
@@ -417,6 +431,38 @@ in
       #navigator-toolbox toolbarbutton {
         color: {{foreground}} !important;
       }
+    '';
+
+    # Hermes desktop skin. The gateway's skin watcher polls (name, mtime) and
+    # broadcasts skin.changed; wallust-apply bumps the name field to the
+    # wallpaper basename so the desktop's name-based apply guard repaints live.
+    # display.skin must be set to `wallust` in the gateway config.
+    home.file."${wallustDir}/templates/hermes.tmpl".text = ''
+      name: wallust
+      description: wallust — live wallpaper theme
+      colors:
+        background: "{{background}}"
+        ui_accent: "{{color5}}"
+        banner_accent: "{{color5}}"
+        banner_title: "{{foreground}}"
+        banner_text: "{{foreground}}"
+        ui_text: "{{foreground}}"
+        banner_dim: "{{color8}}"
+        banner_border: "{{color8}}"
+        ui_border: "{{color8}}"
+        ui_ok: "{{color2}}"
+        ui_warn: "{{color3}}"
+        ui_error: "{{color9}}"
+        prompt: "{{foreground}}"
+        input_rule: "{{color5}}"
+        response_border: "{{color5}}"
+        status_bar_bg: "{{color0}}"
+        status_bar_text: "{{foreground}}"
+        status_bar_good: "{{color2}}"
+        status_bar_warn: "{{color3}}"
+        status_bar_critical: "{{color9}}"
+        session_label: "{{color5}}"
+        session_border: "{{color8}}"
     '';
     }
     {

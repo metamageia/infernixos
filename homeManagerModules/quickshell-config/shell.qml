@@ -356,7 +356,7 @@ ShellRoot {
         }
       }
 
-      // RIGHT — wifi, volume
+      // RIGHT — hermes, wifi, volume
       RowLayout {
         id: right
         spacing: 12
@@ -364,6 +364,65 @@ ShellRoot {
           right: parent.right
           rightMargin: 8
           verticalCenter: parent.verticalCenter
+        }
+
+        // Hermes gateway status, read straight from the gateway's own
+        // gateway_state.json (path injected via QUICKSHELL_HERMES_STATE by the
+        // bar wrapper; falls back to $HERMES_HOME/gateway_state.json). Fields
+        // used: gateway_state ("running"|...), active_agents, platforms (any
+        // "fatal" degrades the dot). FileView watchChanges = event-driven.
+        // Click opens the Hermes desktop app. Missing file = muted "hermes --".
+        readonly property string hermesStatePath: (Quickshell.env("QUICKSHELL_HERMES_STATE") || "").length > 0
+          ? Quickshell.env("QUICKSHELL_HERMES_STATE")
+          : (Quickshell.env("HERMES_HOME") || "") + "/gateway_state.json"
+        property string hermesState: ""
+        property bool hermesDegraded: false
+        FileView {
+          id: hermesStateView
+          path: right.hermesStatePath
+          watchChanges: true
+          onFileChanged: hermesStateView.reload()
+          onLoaded: {
+            try {
+              const s = JSON.parse(this.text())
+              right.hermesState = s.gateway_state || "unknown"
+              let fatal = false
+              for (const k in (s.platforms || {})) {
+                if (s.platforms[k].state === "fatal") { fatal = true; break }
+              }
+              right.hermesDegraded = fatal
+              hermes.text = "hermes " + (right.hermesState === "running"
+                ? (s.active_agents > 0 ? s.active_agents + " agent" + (s.active_agents > 1 ? "s" : "") : "on")
+                : right.hermesState)
+              hermesIcon.source = fatal ? "hermes-warn.svg" : "hermes.svg"
+              hermes.color = right.hermesState === "running"
+                ? (fatal ? root.barUrgent : root.barGreen)
+                : root.barMuted
+            } catch (e) {
+              hermes.text = "hermes --"
+              hermes.color = root.barMuted
+              hermesIcon.source = "hermes.svg"
+            }
+          }
+        }
+        Text {
+          id: hermes
+          color: root.barMuted
+          font.family: root.uiFont
+          font.pixelSize: 13
+          text: "hermes --"
+          MouseArea {
+            anchors.fill: parent
+            cursorShape: Qt.PointingHandCursor
+            onClicked: Quickshell.execDetached(["hermes-desktop"])
+          }
+        }
+        ThemeIcon {
+          id: hermesIcon
+          source: "hermes.svg"
+          tint: hermes.color
+          size: 14
+          anchors.verticalCenter: parent.verticalCenter
         }
 
         // wifi via NetworkManager `nmcli` (no compositor dependency).
