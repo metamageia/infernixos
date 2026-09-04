@@ -38,7 +38,7 @@ in
   options.infernixos.desktop = {
     enable = mkOption {
       type = types.bool;
-      default = false;
+      default = true;
       description = ''
         Enable the infernixos user-level desktop environment: the curated set
         of home-manager applications, shell config and styling. Pairs with the
@@ -59,7 +59,7 @@ in
         options = {
           enable = mkOption {
             type = types.bool;
-            default = false;
+            default = true;
             description = "Enable this application in the home environment.";
           };
           package = mkOption {
@@ -69,20 +69,29 @@ in
           };
         };
       });
-      default = { };
+      default = {
+        pyre.enable = true;
+        fuzzel.enable = true;
+        kitty.enable = true;
+        niri.enable = true;
+        quickshell.enable = true;
+      };
       description = ''
-        Granular per-application toggles. Each curated key installs its themed
-        package when set to true; override `package` to substitute a different
-        build. Curated applications: pyre (PySide6+QML file manager), fuzzel
-        (launcher), kitty (terminal), quickshell (status bar), zen-browser
-        (web browser, wallust-themed; `apps.zen.enable` also applies the
-        wallust zen.tmpl to the default profile's userChrome.css).
+        Granular per-application toggles for the curated set (pyre, fuzzel,
+        kitty, niri, quickshell). Override `package` to substitute a
+        different build.
       '';
+    };
+
+    zen.enable = mkOption {
+      type = types.bool;
+      default = true;
+      description = "Enable the zen-browser home-manager module (profile management, Sine).";
     };
   };
 
-  config = mkIf cfg.enable (mkMerge [
-    {
+  config = mkMerge [
+    (mkIf cfg.enable {
       home.packages = with pkgs; [
         htop
         ripgrep
@@ -95,14 +104,22 @@ in
       home.sessionVariables = {
         EDITOR = "nano";
       };
-    }
+    })
 
-    (mkIf cfg.apps.zen.enable {
+    (mkIf cfg.zen.enable {
       programs.zen-browser = {
         enable = true;
-        profiles.default.settings = {
-          "toolkit.legacyUserProfileCustomizations.stylesheets" = true;
-          "zen.urlbar.open-on-startup" = false;
+        profiles.default = {
+          settings = {
+            "toolkit.legacyUserProfileCustomizations.stylesheets" = true;
+            "sine.allow-unsafe-js" = true;
+            "zen.widget.linux.transparency" = true;
+            "zen.urlbar.open-on-startup" = false;
+          };
+          sine = {
+            enable = true;
+            mods = [ ];
+          };
         };
       };
     })
@@ -110,5 +127,5 @@ in
     (mkIf cfg.shell.enable {
       programs.bash.enable = true;
     })
-  ]);
+  ];
 }

@@ -12,7 +12,7 @@ in
   options.infernixos.desktop.hermes = {
     enable = mkOption {
       type = types.bool;
-      default = false;
+      default = true;
       description = ''
         Enable Hermes-first desktop integration: the Quickshell bar reads the
         gateway's own gateway_state.json for live status, a systemd-coredump

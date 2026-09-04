@@ -67,7 +67,7 @@ in
   options.infernixos.desktop.bar = {
     enable = mkOption {
       type = types.bool;
-      default = false;
+      default = true;
       description = ''
         Enable the wallust-themed quickshell status bar (workspaces, clock,
         hermes gateway status, wifi, volume, tray). Requires the compositor to

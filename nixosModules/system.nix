@@ -12,7 +12,7 @@ in
   options.infernixos.system = with lib; {
     enable = mkOption {
       type = types.bool;
-      default = false;
+      default = true;
       description = ''
         Enable the infernixos system-level essentials: the curated core
         packages. Disabled by default so the distro is inert until a consumer
@@ -32,13 +32,32 @@ in
 
     hermesCrashHook = mkOption {
       type = types.bool;
-      default = false;
+      default = true;
       description = ''
         Wire systemd-coredump to notify the primary user's manager on any
         crash, where the hermes-crash-diagnose user path unit (home-manager
         module, infernixos.desktop.hermes.enable) picks it up and hands the
         coredump to Hermes. Requires exactly one graphical user; set
         `infernixos.system.primaryUser` to their name.
+      '';
+    };
+
+    hermesEnable = mkOption {
+      type = types.bool;
+      default = true;
+      description = ''
+        Run the Hermes Agent gateway as a system service. The agent runs as the
+        `hermes` system user with full privileges and no sudo prompts, so the
+        gateway is up regardless of which user is logged in.
+      '';
+    };
+
+    hermesSettings = mkOption {
+      type = types.attrsOf types.anything;
+      default = { };
+      description = ''
+        Hermes Agent settings, deep-merged into `services.hermes-agent.settings`
+        (rendered as config.yaml). Consumers must set the model provider here.
       '';
     };
 
@@ -61,6 +80,16 @@ in
         vim
         wget
       ] ++ config.infernixos.system.extraPackages;
+    })
+
+    (mkIf (config.infernixos.system.enable && config.infernixos.system.hermesEnable) {
+      services.hermes-agent = {
+        enable = true;
+        user = "hermes";
+        group = "hermes";
+        addToSystemPackages = true;
+        settings = config.infernixos.system.hermesSettings;
+      };
     })
 
     (mkIf config.infernixos.system.hermesCrashHook {

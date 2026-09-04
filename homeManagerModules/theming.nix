@@ -56,7 +56,7 @@ in
   options.infernixos.desktop.theming = {
     enable = mkOption {
       type = types.bool;
-      default = false;
+      default = true;
       description = ''
         Enable the infernixos autotheming engine: derives a palette from the
         active wallpaper with wallust and live-applies it system-wide. Ships
