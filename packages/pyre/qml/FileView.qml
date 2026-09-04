@@ -260,12 +260,22 @@ Item {
                 return Math.max(1, Math.floor(grid.width / grid.cellWidth))
             }
 
+            // Map a mouse point from THIS MouseArea's coordinates into the
+            // grid's own space before hit-testing: marea and grid are siblings
+            // under iconsRoot, and grid.indexAt expects grid-local coords —
+            // passing raw marea coords hit-tests rows 1-2 too high (the grid
+            // origin offset), making every click "empty space".
+            function gridPt(mx, my) {
+                return marea.mapToItem(grid, mx, my)
+            }
+
             onPressed: (mouse) => {
-                var r = grid.indexAt(mouse.x, mouse.y)
+                var gp = gridPt(mouse.x, mouse.y)
+                var r = grid.indexAt(gp.x, gp.y)
                 pressPt = Qt.point(mouse.x, mouse.y)
                 if (r >= 0) { pressRow = r; marquee = false
-                    _drag = fsModel.data(fsModel.index(r,0), fsModel.R_ISDIR) === true
-                    _dragPath = _drag ? fsModel.data(fsModel.index(r,0), fsModel.R_PATH) : ""
+                    _drag = fsModel.isDirAt(r)
+                    _dragPath = _drag ? fsModel.pathAt(r) : ""
                 }
                 else { pressRow = -1; marquee = true; _drag = false
                        marqueeRect.x = mouse.x; marqueeRect.y = mouse.y
@@ -308,10 +318,10 @@ Item {
                 }
             }
             onDoubleClicked: (mouse) => {
-                var r = grid.indexAt(mouse.x, mouse.y)
+                var gp = gridPt(mouse.x, mouse.y)
+                var r = grid.indexAt(gp.x, gp.y)
                 if (r >= 0) {
-                    var isDir = fsModel.data(fsModel.index(r, 0), fsModel.R_ISDIR)
-                    isDir ? controller.enterDir(r) : controller.openRow(r)
+                    fsModel.isDirAt(r) ? controller.enterDir(r) : controller.openRow(r)
                 }
             }
             // arrow-key navigation + type-ahead

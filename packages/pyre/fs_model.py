@@ -533,6 +533,20 @@ class FileSystemModel(QAbstractListModel):
     def _set_icon_size(self, v): self.icon_size = int(v); self.dataChanged.emit(self.index(0), self.index(max(0, len(self._entries)-1)))
     iconSizeProp = Property(int, _get_icon_size, _set_icon_size)
 
+    @Slot(int, result=bool)
+    def isDirAt(self, row: int) -> bool:
+        """QML-callable is-dir check. data() is NOT Slot-exposed (role args
+        arrive mangled through QML), so raw data(index, R_ISDIR) from QML
+        returned the display name — truthy for every file — making
+        double-clicked files take the enterDir path and open nothing."""
+        p = self.pathForRow(row)
+        return p.is_dir() if p else False
+
+    @Slot(int, result="QString")
+    def pathAt(self, row: int) -> str:
+        p = self.pathForRow(row)
+        return str(p) if p else ""
+
     @Slot(int, bool)
     def setSort(self, key: int, desc: bool = False) -> None:
         self.sort_key = SortKey(key)
