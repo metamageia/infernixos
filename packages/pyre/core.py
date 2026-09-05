@@ -549,6 +549,7 @@ class FileController(QObject):
         self.currentPathChanged.emit(self.currentPath)
         self.previewChanged.emit()
         self.statusChanged.emit(self._model.statusText)
+        self.tabChanged.emit(self._active)
 
     # ---- per-folder view-properties (PRD §12) ----
     def _save_folder_props(self):
