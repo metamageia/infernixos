@@ -22,6 +22,7 @@ from main import ThemeIconProvider  # noqa: E402
 from places_model import PlacesModel  # noqa: E402
 from search_model import SearchModel  # noqa: E402
 from settings import Settings  # noqa: E402
+from terminal_session import TerminalSession  # noqa: E402
 from theme import ThemeManager  # noqa: E402
 
 app = QGuiApplication(sys.argv)
@@ -38,6 +39,7 @@ for name, obj in {
     "folderModel": FolderModel(),
     "placesModel": PlacesModel(settings.places),
     "searchModel": SearchModel(),
+    "terminal": TerminalSession(),
     "theme": theme,
 }.items():
     engine.rootContext().setContextProperty(name, obj)

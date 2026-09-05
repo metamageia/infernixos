@@ -47,6 +47,11 @@ Item {
     }
 
     // ---------------- PREVIEW MODE ----------------
+    DropArea {
+        anchors.fill: parent
+        keys: ["text/uri-list"]
+        onDropped: (drop) => controller.dropInto(drop.urls, drop.modifiers & Qt.ShiftModifier)
+    }
     SplitView {
         anchors.fill: parent
         visible: mode === "preview"
@@ -458,8 +463,14 @@ Item {
                     onTriggered: { var r = controller.selectedRow(); r >= 0 && controller.openRow(r) }
                 }
         MenuItem { text: "Open Terminal Here"; onTriggered: root.openTerminalRequested() }
+        MenuItem {
+            text: "Ask Hermes about this"
+            enabled: fsModel.selectedCount > 0
+            onTriggered: controller.askHermes(controller.selectedFilePaths(), "Explain this")
+        }
         MenuItem { text: "Rename…"; onTriggered: renameDlg.open() }
-                MenuItem { text: "Move to Trash"; onTriggered: { var r = controller.selectedRow(); r >= 0 && controller.trashRow(r) } }
+        MenuItem { text: "Batch Rename…"; enabled: fsModel.selectedCount > 1; onTriggered: batchRenameDlg.open() }
+        MenuItem { text: "Move to Trash"; onTriggered: { var r = controller.selectedRow(); r >= 0 && controller.trashRow(r) } }
                 MenuSeparator {}
                 MenuItem { text: "Copy"; onTriggered: controller.copySelection() }
                 MenuItem { text: "Cut"; onTriggered: controller.cutSelection() }
@@ -490,5 +501,18 @@ Item {
             onAccepted: renameDlg.accept()
         }
         onAccepted: { var r = controller.selectedRow(); r >= 0 && controller.renameRow(r, rf.text) }
+    }
+
+    Dialog {
+        id: batchRenameDlg
+        title: "Batch Rename"
+        modal: true
+        standardButtons: Dialog.Ok | Dialog.Cancel
+        ColumnLayout {
+            TextField { id: brFind; placeholderText: "Find"; Layout.fillWidth: true }
+            TextField { id: brReplace; placeholderText: "Replace with"; Layout.fillWidth: true }
+            CheckBox { id: brRegex; text: "Regular expression"; checked: false }
+        }
+        onAccepted: controller.renameBatch(brFind.text, brReplace.text, brRegex.checked)
     }
 }

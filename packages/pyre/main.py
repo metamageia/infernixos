@@ -15,6 +15,7 @@ from folder_model import FolderModel
 from places_model import PlacesModel
 from search_model import SearchModel
 from settings import Settings
+from terminal_session import TerminalSession
 from theme import ThemeManager
 
 APP_DIR = Path(__file__).resolve().parent
@@ -123,6 +124,7 @@ def main() -> int:
     folder_model = FolderModel()
     places_model = PlacesModel(settings.places)
     search_model = SearchModel()
+    terminal = TerminalSession()
     theme = ThemeManager()
 
     for name, obj in {
@@ -133,6 +135,7 @@ def main() -> int:
             "folderModel": folder_model,
             "placesModel": places_model,
             "searchModel": search_model,
+            "terminal": terminal,
             "theme": theme,
         }.items():
         engine.rootContext().setContextProperty(name, obj)

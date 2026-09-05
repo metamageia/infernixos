@@ -20,7 +20,7 @@ in
     buildInputs = [ qt6.qtbase qt6.qtsvg ];
     installPhase = ''
       mkdir -p $out/libexec/pyre
-      cp main.py core.py fs_model.py settings.py folder_model.py places_model.py search_model.py theme.py $out/libexec/pyre/
+      cp *.py $out/libexec/pyre/
       cp -r qml $out/libexec/pyre/
       mkdir -p $out/bin
       cat > $out/bin/pyre <<EOF

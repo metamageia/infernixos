@@ -6,6 +6,7 @@ places list. Plain readable JSON, hand-editable, no binary DB.
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
 
 from PySide6.QtCore import Property, QObject, Signal
@@ -66,6 +67,32 @@ class Settings(QObject):
                     self._data[k] = v
         except (FileNotFoundError, json.JSONDecodeError):
             pass
+        self._populate_xdg_dirs()
+
+    def _populate_xdg_dirs(self):
+        """Fill standard Places from xdg-user-dirs (keeps saved custom places)."""
+        try:
+            r = subprocess.run(
+                ["xdg-user-dir", "DESKTOP"], capture_output=True, text=True, timeout=5
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            return
+        if r.returncode != 0:
+            return
+        known = {p["label"] for p in self._data["places"]}
+        xdg = {"DESKTOP": "Desktop", "DOWNLOAD": "Downloads", "DOCUMENTS": "Documents",
+               "PICTURES": "Pictures", "MUSIC": "Music", "VIDEOS": "Videos"}
+        for key, label in xdg.items():
+            if label in known:
+                continue
+            try:
+                rr = subprocess.run(["xdg-user-dir", key],
+                                    capture_output=True, text=True, timeout=5)
+            except (OSError, subprocess.TimeoutExpired):
+                continue
+            d = rr.stdout.strip()
+            if d and Path(d).is_dir():
+                self._data["places"].append({"label": label, "path": d})
 
     def save(self):
         CONFIG_DIR.mkdir(parents=True, exist_ok=True)

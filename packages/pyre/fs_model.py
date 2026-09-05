@@ -17,7 +17,7 @@ import stat as statmod
 from datetime import datetime
 from pathlib import Path
 
-from PySide6.QtCore import Property, QAbstractListModel, QModelIndex, Qt, Signal, Slot
+from PySide6.QtCore import Property, QAbstractListModel, QFileSystemWatcher, QModelIndex, QTimer, Qt, Signal, Slot
 
 # Natural number collation: split runs of digits, zero-pad for length-aware order
 _DIGITS = re.compile(r"(\d+)")
@@ -111,6 +111,11 @@ class FileSystemModel(QAbstractListModel):
         self.icon_size = 32
         self._filter_text = ""
         self._group_mode = "letter"  # letter | type | date
+        # inotify auto-refresh: watch the current dir; on change reload once
+        # (debounced — a cp into the folder fires many events).
+        self._watcher = QFileSystemWatcher(self)
+        self._watcher.directoryChanged.connect(self._on_dir_changed)
+        self._reload_timer: QTimer | None = None
         self.reload()
 
     @property
@@ -144,6 +149,11 @@ class FileSystemModel(QAbstractListModel):
         return st
 
     def reload(self) -> None:
+        # keep the inotify watch on the current root (addPath is a no-op dup)
+        if self._root.is_dir():
+            self._watcher.addPath(str(self._root))
+        else:
+            self._watcher.removePath(str(self._root))
         self._stat_cache.clear()
         try:
             entries = [e for e in self._root.iterdir()]
@@ -153,6 +163,14 @@ class FileSystemModel(QAbstractListModel):
             entries = []
         self._all_entries = entries
         self._apply_filter()
+
+    def _on_dir_changed(self, _path: str) -> None:
+        """Directory changed on disk — reload (debounced 120ms)."""
+        if self._reload_timer is None:
+            self._reload_timer = QTimer(self)
+            self._reload_timer.setSingleShot(True)
+            self._reload_timer.timeout.connect(self.reload)
+        self._reload_timer.start(120)
 
     def _apply_filter(self) -> None:
         """Filter + sort into self._entries, preserving selection by path."""

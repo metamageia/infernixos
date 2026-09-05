@@ -84,6 +84,7 @@ ApplicationWindow {
             Action { text: "Copy"; shortcut: "Ctrl+C"; onTriggered: controller.copySelection() }
             Action { text: "Cut"; shortcut: "Ctrl+X"; onTriggered: controller.cutSelection() }
             Action { text: "Paste"; shortcut: "Ctrl+V"; onTriggered: controller.paste() }
+            Action { text: "Undo"; shortcut: "Ctrl+Z"; onTriggered: controller.undo() }
             MenuSeparator {}
             Action { text: "Select All"; shortcut: "Ctrl+A"; onTriggered: view.selectAll() }
             Action { text: "Invert Selection"; shortcut: "Ctrl+E"; onTriggered: view.invertSelection() }
@@ -211,6 +212,7 @@ ApplicationWindow {
                         iconSource: "image://theme/" + model.iconName + "?accent"
                         label: model.label
                         onClicked: controller.openPath(model.path)
+                        onRemoveRequested: placesModel.remove_place(index)
                     }
                 }
                 Rectangle { width: parent.width; height: 1; color: th.border }
@@ -360,6 +362,21 @@ ApplicationWindow {
                 anchors.leftMargin: 8
                 anchors.rightMargin: 8
                 Label { id: status; Layout.fillWidth: true; color: th.fg }
+            ProgressBar {
+                id: opsBar
+                Layout.preferredWidth: 140
+                visible: controller.busyProp
+                from: 0; to: 100; value: opsBarVal
+                property int opsBarVal: 0
+            }
+            ToolButton {
+                text: "Cancel"; visible: controller.busyProp
+                onClicked: controller.cancelOp()
+            }
+            Connections {
+                target: controller
+                function onOpsProgress(done, total) { opsBar.opsBarVal = total > 0 ? done * 100 / total : 0 }
+            }
             Slider {
                 id: sizeSlider
                 Layout.preferredWidth: 120
@@ -497,8 +514,21 @@ ApplicationWindow {
                 text: "Always open this file type with the selected application"
                 checked: true
             }
+            RowLayout {
+                TextField {
+                    id: customCmd
+                    placeholderText: "or type a command (%f = file)"
+                    Layout.fillWidth: true
+                    color: th.fg
+                    onAccepted: openWithDlg.accept()
+                }
+            }
         }
         onAccepted: {
+            if (customCmd.text !== "") {
+                controller.openWithCommand(openWithDlg.targetPath, customCmd.text)
+                return
+            }
             if (openWithList.currentIndex >= 0 && openWithAppModel.count > 0) {
                 var app = openWithAppModel.get(openWithList.currentIndex)
                 controller.openWith(openWithDlg.targetPath, app.id, rememberChk.checked)

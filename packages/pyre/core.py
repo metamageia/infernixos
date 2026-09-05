@@ -18,6 +18,8 @@ import shlex
 import shutil
 import subprocess
 import threading
+import urllib.parse
+from datetime import datetime
 from pathlib import Path
 
 from PySide6.QtCore import Property, QObject, QTimer, Signal, Slot
@@ -203,8 +205,69 @@ def _set_default(mime: str, app_id: str) -> None:
         pass
 
 
+def _find_trashed(orig: str) -> str:
+    """Path of the trashed copy of `orig`, matched via trashinfo Path= (authoritative)."""
+    info_dir = Path.home() / ".local/share/Trash/info"
+    if not info_dir.is_dir():
+        return ""
+    for info in info_dir.glob("*.trashinfo"):
+        try:
+            val = next((ln.split("=", 1)[1].strip() for ln in
+                        info.read_text().splitlines()
+                        if ln.startswith("Path=")), "")
+        except OSError:
+            continue
+        if urllib.parse.unquote(val) == orig:
+            return str(Path.home() / ".local/share/Trash/files" / info.stem)
+    return ""
+
+
+def _gio_trash(p: Path) -> bool:
+    """Trash via `gio trash` (correct cross-fs + restore metadata). False if gio missing."""
+    try:
+        r = subprocess.run(["gio", "trash", str(p)], capture_output=True, timeout=30)
+        return r.returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+
+
+def _to_trash(p: Path):
+    """Move to XDG trash. gio first; fallback is a local-fs-only implementation."""
+    if _gio_trash(p):
+        return
+    # ponytail: fallback ignores the same-filesystem rule (cross-fs moves copy,
+    # possibly slow); gio covers the real path.
+    trash = Path.home() / ".local" / "share" / "Trash"
+    files = trash / "files"
+    info = trash / "info"
+    files.mkdir(parents=True, exist_ok=True)
+    info.mkdir(parents=True, exist_ok=True)
+    dest = files / p.name
+    i = 1
+    base = dest
+    while dest.exists():
+        dest = files / f"{base.stem}_{i}{base.suffix}"
+        i += 1
+    if p.stat().st_dev != files.stat().st_dev:
+        raise OSError(f"{p} is on another filesystem; install gio to trash it")
+    shutil.move(str(p), str(dest))
+    # trashinfo metadata (best effort; KDE-compatible name); Path URI-encoded
+    (info / f"{dest.name}.trashinfo").write_text(
+        f"[Trash Info]\nPath={urllib.parse.quote(str(p.resolve()))}\n"
+        f"DeletionDate={datetime.now().astimezone().isoformat(timespec='seconds')}\n"
+    )
+
+
+_MIME_CACHE: dict[str, str] = {}
+
+
 def _mime_for(p: Path) -> str:
     """MIME type of a file — xdg-mime query, falling back to stdlib mimetypes."""
+    key = f"{p}:{p.stat().st_mtime_ns}:{p.stat().st_size}" if p.exists() else str(p)
+    hit = _MIME_CACHE.get(key)
+    if hit is not None:
+        return hit
+    m = ""
     try:
         r = subprocess.run(
             ["xdg-mime", "query", "filetype", str(p)],
@@ -212,10 +275,13 @@ def _mime_for(p: Path) -> str:
         )
         m = r.stdout.strip()
         if m:
-            return m.split(";")[0].strip()
+            hit = m.split(";")[0].strip()
+        else:
+            hit = mimetypes.guess_type(str(p))[0] or "application/octet-stream"
     except (OSError, subprocess.TimeoutExpired):
-        pass
-    return mimetypes.guess_type(str(p))[0] or "application/octet-stream"
+        hit = mimetypes.guess_type(str(p))[0] or "application/octet-stream"
+    _MIME_CACHE[key] = hit
+    return hit
 
 
 def _default_app(mime: str) -> str:
@@ -335,6 +401,10 @@ class FileController(QObject):
     splitChanged = Signal(bool)
     previewChanged = Signal()
     openWithRequested = Signal(str, str)  # path, mime — no default app set
+    opsProgress = Signal(int, int)  # done, total
+    opsDone = Signal(str)  # error, "" on success
+    busyChanged = Signal()
+    trashResults = Signal("QVariantList")  # [(kind, trashedPath, origPath)]
 
     def __init__(self, settings=None):
         super().__init__()
@@ -356,6 +426,12 @@ class FileController(QObject):
         # lazy poster thumbnails: background worker populates R_THUMB URLs
         self._thumb_worker = ThumbnailWorker()
         self._thumb_worker.thumbReady.connect(self._on_thumb_ready)
+        # async file ops + undo
+        self.opsDone.connect(self._on_ops_done)
+        self.trashResults.connect(self._on_trash_results)
+        self._busy = False
+        self._cancel_ops = False
+        self._undo_log: list[tuple[str, str, str]] = []
         # paths already handed to the worker; lets the 1.5s tick skip the
         # whole directory instead of re-stat'ing every row on the UI thread
         self._thumb_scanned: set[str] = set()
@@ -395,6 +471,18 @@ class FileController(QObject):
             self._go(p)
         else:
             self._open_file(p)
+
+    @Slot(str)
+    def openUri(self, uri: str):
+        """Open a URI — local paths, or remote locations via gio open."""
+        if uri.startswith("file://"):
+            self.openPath(urllib.parse.unquote(urllib.parse.urlparse(uri).path))
+            return
+        try:
+            subprocess.Popen(["gio", "open", uri], start_new_session=True,
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except OSError as e:
+            self.statusChanged.emit(str(e))
 
     @Slot(str)
     def revealPath(self, path: str):
@@ -597,7 +685,9 @@ class FileController(QObject):
         self._model.currentChanged.disconnect(self._on_current_changed)
         self._model = self._tabs[index].model
         self._model.currentChanged.connect(self._on_current_changed)
-        self._model.dataChanged.connect(self._filter_data_changed)
+        if not getattr(self._model, "_connected", False):
+            self._model.dataChanged.connect(self._filter_data_changed)
+            self._model._connected = True
         self._load_folder_props(self._model.root)
         self.tabChanged.emit(index)
         self._on_current_changed()
@@ -625,6 +715,11 @@ class FileController(QObject):
         return self._split_visible
 
     splitVisibleProp = Property(bool, _get_splitVisible, notify=splitChanged)
+
+    def _get_busy(self) -> bool:
+        return self._busy
+
+    busyProp = Property(bool, _get_busy, notify=busyChanged)
 
     @Slot()
     def toggleSplit(self):
@@ -674,15 +769,97 @@ class FileController(QObject):
 
     @Slot(int)
     def trashRow(self, row: int):
-        """Move to XDG trash (files only fallback: move to ~/.local/share/Trash)."""
-        p = self._model.pathForRow(row)
-        if p is None:
+        """Move to XDG trash (async; undoable)."""
+        if self._busy:
+            return
+        rows = self._model.selectedRows or ([row] if self._model.pathForRow(row) else [])
+        pairs = []
+        for r in rows:
+            p = self._model.pathForRow(r)
+            if p is None:
+                continue
+            pairs.append((p, p))
+        if not pairs:
+            return
+        self._busy = True
+        self.statusChanged.emit(f"Trashing {len(pairs)} item(s)…")
+
+        def work():
+            done, err = 0, ""
+            undo_trash: list[tuple[str, str, str]] = []
+            for src, _ in pairs:
+                if self._cancel_ops:
+                    break
+                try:
+                    orig = str(src.resolve())
+                    _to_trash(src)
+                    trashed = _find_trashed(orig)
+                    undo_trash.append(("trash", trashed or "", orig))
+                except OSError as e:
+                    err = str(e)
+                done += 1
+                self.opsProgress.emit(done, len(pairs))
+            self._busy = False
+            self._cancel_ops = False
+            self._undo_log.extend((k, t, o) for k, t, o in undo_trash if t)
+            self.trashResults.emit(undo_trash)
+            self.opsDone.emit(err)
+
+        threading.Thread(target=work, daemon=True).start()
+
+    @Slot(str, str)
+    def openWithCommand(self, path: str, command: str):
+        """Open `path` with a raw command string (%f expanded, else appended)."""
+        p = Path(path)
+        quoted = shlex.quote(str(p))
+        cmd = command.replace("%f", quoted).replace("%F", quoted)
+        try:
+            argv = shlex.split(cmd)
+        except ValueError:
+            argv = []
+        if not any(c in command for c in ("%f", "%F", "%u", "%U")):
+            argv = argv + [quoted]
+        if not argv:
+            self.statusChanged.emit("Empty command")
             return
         try:
-            self._to_trash(p)
-            self._model.reload()
+            subprocess.Popen(argv, start_new_session=True,
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         except OSError as e:
             self.statusChanged.emit(str(e))
+
+    @Slot(str, str, bool)
+    def renameBatch(self, find: str, replace: str, regex: bool):
+        """Rename all selected files, replacing `find` with `replace` in names."""
+        import re as _re
+        count, err = 0, ""
+        for row in self._model.selectedRows:
+            p = self._model.pathForRow(row)
+            if p is None:
+                continue
+            if regex:
+                try:
+                    new_name = _re.sub(find, replace, p.name)
+                except _re.error as e:
+                    self.statusChanged.emit(f"Bad regex: {e}")
+                    return
+            else:
+                new_name = p.name.replace(find, replace)
+            if new_name and new_name != p.name and "/" not in new_name:
+                try:
+                    p.rename(p.with_name(new_name))
+                    count += 1
+                except OSError as e:
+                    err = str(e)
+        if err:
+            self.statusChanged.emit(err)
+        elif count:
+            self.statusChanged.emit(f"Renamed {count} item(s)")
+        self._model.reload()
+
+    @Slot()
+    def cancelOp(self):
+        self._cancel_ops = True
 
     @Slot(str)
     def newFolder(self, name: str = "New Folder"):
@@ -721,9 +898,10 @@ class FileController(QObject):
 
     @Slot()
     def paste(self):
-        if not self._clip:
+        if self._busy or not self._clip:
             return
         dest = self._model.root
+        pairs = []
         for src in self._clip:
             if not src.exists():
                 continue
@@ -733,18 +911,101 @@ class FileController(QObject):
             while target.exists():
                 target = dest / f"{base.stem}_{i}{base.suffix}"
                 i += 1
-            try:
-                if self._cut:
-                    shutil.move(str(src), str(target))
-                else:
-                    if src.is_dir():
-                        shutil.copytree(str(src), str(target))
-                    else:
-                        shutil.copy2(str(src), str(target))
-            except OSError as e:
-                self.statusChanged.emit(str(e))
+            pairs.append((src, target))
+        if not pairs:
+            return
         self._clip = []
-        self._model.reload()
+        self._run_ops(pairs, cut=self._cut)
+
+    @Slot("QVariantList", bool)
+    def dropInto(self, paths: list, move: bool):
+        """Copy (or move) externally-dropped paths into the current folder."""
+        if self._busy or not paths:
+            return
+        dest = self._model.root
+        pairs = []
+        for s in paths:
+            src = Path(urllib.parse.unquote(urllib.parse.urlparse(str(s)).path)) \
+                if str(s).startswith("file://") else Path(str(s))
+            if not src.exists() or src.parent == dest:
+                continue
+            target = dest / src.name
+            i = 1
+            base = target
+            while target.exists():
+                target = dest / f"{base.stem}_{i}{base.suffix}"
+                i += 1
+            pairs.append((src, target))
+        if pairs:
+            self._run_ops(pairs, cut=move)
+
+    # ---- async file operations (background thread + undo log) ----
+    def _run_ops(self, pairs: list[tuple[Path, Path]], cut: bool):
+        """Run copy/move pairs in the worker thread with progress + undo."""
+        self._busy = True
+        self.statusChanged.emit(f"{len(pairs)} item(s) {'moving' if cut else 'copying'}…")
+
+        def work():
+            done, err = 0, ""
+            for src, dst in pairs:
+                if self._cancel_ops:
+                    break
+                try:
+                    if cut:
+                        shutil.move(str(src), str(dst))
+                    elif src.is_dir():
+                        shutil.copytree(str(src), str(dst))
+                    else:
+                        shutil.copy2(str(src), str(dst))
+                    self._undo_log.append((("move" if cut else "copy"), str(dst), str(src)))
+                except OSError as e:
+                    err = str(e)
+                done += 1
+                self.opsProgress.emit(done, len(pairs))
+            self._busy = False
+            self._cancel_ops = False
+            self.opsDone.emit(err)
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _on_trash_results(self, results: list):
+        for kind, trashed, orig in results:
+            if trashed:
+                self._undo_log.append((kind, trashed, orig))
+
+    def _on_ops_done(self, err: str):
+        self._busy = False
+        self._cancel_ops = False
+        if err:
+            self.statusChanged.emit(err)
+        else:
+            self.statusChanged.emit(
+                f"Done — Ctrl+Z to undo ({len(self._undo_log)} undoable step(s))")
+        for m in self._all_models():
+            m.reload()
+        self.busyChanged.emit()
+
+    @Slot()
+    def undo(self):
+        """Undo the most recent op in the log (copy/move/trash)."""
+        if self._busy or not self._undo_log:
+            self.statusChanged.emit("Nothing to undo")
+            return
+        kind, a, b = self._undo_log.pop()
+        try:
+            if kind == "copy":
+                shutil.rmtree(a) if Path(a).is_dir() else Path(a).unlink()
+            elif kind == "move":
+                shutil.move(a, b)
+            elif kind == "trash":
+                # restore from trash: a is the trashed path, b the original
+                shutil.move(a, b)
+        except OSError as e:
+            self.statusChanged.emit(f"Undo failed: {e}")
+            return
+        self.statusChanged.emit(f"Undid {kind}")
+        for m in self._all_models():
+            m.reload()
 
     @Slot()
     def selectAll(self):
@@ -771,6 +1032,24 @@ class FileController(QObject):
     def selectedFilePath(self) -> str:
         p = self._selected_path()
         return str(p) if p else ""
+
+    @Slot(result="QVariantList")
+    def selectedFilePaths(self) -> list:
+        return [str(self._model.pathForRow(r)) for r in self._model.selectedRows
+                if self._model.pathForRow(r)]
+
+    @Slot("QVariantList", str)
+    def askHermes(self, paths: list, question: str = ""):
+        """Hand the exact selected paths to infernixos-ask (argv, no shell)."""
+        args = ["infernixos-ask"]
+        for p in paths or []:
+            args += ["--file", str(p)]
+        args.append(question or "Explain this")
+        try:
+            subprocess.Popen(args, start_new_session=True,
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except OSError as e:
+            self.statusChanged.emit(f"infernixos-ask: {e}")
 
     def _filter_data_changed(self, topLeft, bottomRight, roles) -> None:
         """Emit previewChanged when selection flips, so QML bindings refresh."""
@@ -853,24 +1132,6 @@ class FileController(QObject):
         for m in self._all_models():
             m.notify_thumb(path)
 
-    def _to_trash(self, p: Path):
-        trash = Path.home() / ".local" / "share" / "Trash"
-        files = trash / "files"
-        info = trash / "info"
-        files.mkdir(parents=True, exist_ok=True)
-        info.mkdir(parents=True, exist_ok=True)
-        dest = files / p.name
-        i = 1
-        base = dest
-        while dest.exists():
-            dest = files / f"{base.stem}_{i}{base.suffix}"
-            i += 1
-        shutil.move(str(p), str(dest))
-        # trashinfo metadata (best effort; KDE-compatible name)
-        (info / f"{dest.name}.trashinfo").write_text(
-            f"[Trash Info]\nPath={p}\nDeletionDate={os.popen('date -Iseconds').read().strip()}\n"
-        )
-
     # ---- open-with flow (freedesktop MIME resolution) ----
     @Slot(str, result="QVariantList")
     def appsForMime(self, mime: str):
@@ -914,7 +1175,7 @@ if __name__ == "__main__":
         assert c.model.root == first_dir, f"{c.model.root} != {first_dir}"
         c.goUp()
         assert c.model.root == home
-    # clipboard copy/paste round-trip
+    # clipboard copy/paste round-trip (async ops: wait for opsDone)
     import tempfile
     with tempfile.TemporaryDirectory() as td:
         src = Path(td) / "a.txt"
@@ -925,7 +1186,19 @@ if __name__ == "__main__":
         destdir.mkdir()
         c._model.set_root(destdir)
         c.paste()
+        import time
+        for _ in range(100):
+            if (destdir / "a.txt").exists() and not c._busy:
+                break
+            time.sleep(0.1)
         assert (destdir / "a.txt").exists(), "paste failed"
+        # undo round-trip
+        c.undo()
+        for _ in range(100):
+            if not (destdir / "a.txt").exists():
+                break
+            time.sleep(0.1)
+        assert not (destdir / "a.txt").exists(), "undo failed"
     # split toggle
     c.toggleSplit()
     assert c.splitVisibleProp is True

@@ -12,6 +12,7 @@ Item {
     property string label: ""
     property bool selected: false
     signal clicked()
+    signal removeRequested()
 
     height: 24
     // align with "File" on the menu bar (the menu bar has ~7px inset)
@@ -41,5 +42,12 @@ Item {
         color: row.selected ? th.selection : "transparent"
         z: -1
     }
-    MouseArea { anchors.fill: parent; onClicked: row.clicked() }
+    MouseArea {
+        anchors.fill: parent
+        acceptedButtons: Qt.LeftButton | Qt.RightButton
+        onClicked: (mouse) => {
+            if (mouse.button === Qt.RightButton) row.removeRequested()
+            else row.clicked()
+        }
+    }
 }
