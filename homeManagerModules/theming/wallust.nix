@@ -132,7 +132,7 @@
     choice="$(list_wallpapers | ${pkgs.gnugrep}/bin/grep -o '[^/]*$' | ${pkgs.fuzzel}/bin/fuzzel --dmenu --prompt 'Wallpaper: ')"
     [ -n "$choice" ] || exit 0
 
-    wp="$(list_wallpapers | ${pkgs.gnugrep} "/${choice}$" | head -n1)"
+    wp="$(list_wallpapers | ${pkgs.gnugrep}/bin/grep -F "/''${choice}" | head -n1)"
     [ -n "$wp" ] || { echo "wallust-switch: not found: $choice" >&2; exit 1; }
     exec ${wallust-apply}/bin/wallust-apply "$wp"
   '';
