@@ -5,10 +5,12 @@ import Quickshell
 
 // WallpaperHive — the Phase 6 diamond wallpaper picker.
 //
+// Diamond CROP (fixed 08-29, restored from 1977c3e): each thumbnail is cropped
 // to a diamond by a rotated+scaled `clip:true` container holding the Image.
 // The Image counter-rotates -45° (upright) and is oversized by √2 so it fills
 // the diamond's full height.
 //
+// LATTICE (Gage, 08-29): diamonds laid out in rows where alternating rows are
 // OFFSET by half a cell and interlock (sides touching) — a honeycomb/lattice
 // instead of a plain grid. Positions are computed explicitly per tile.
 //
@@ -37,7 +39,7 @@ Item {
   readonly property int cellD: 96
   readonly property double invSqrt2: 0.7071067811865476   // 1/√2 for the inscribed diamond
   readonly property double colPitch: cellD                // horizontal center spacing
-  readonly property double rowPitch: cellD * 0.55
+  readonly property double rowPitch: cellD * 0.55   // vertical row pitch — tuned so offset rows interlock, sides touching (08-29)
   readonly property double offX: cellD / 2                // alternate-row horizontal offset
 
   // Precomputed cluster geometry (row/col positions), filled on rebuild.
@@ -50,11 +52,14 @@ Item {
     // Guard: if the width isn't resolved yet (< one column), keep the last good
     // positions. A transient width=0 pass would compute colsPerRow=1 and stack
     // every tile into a vertical column (the "snap from vertical" flash on
+    // Mod+W, 08-29). Skip instead — the tiles stay put until width is stable.
     if (count === 0 || hive.width < hive.colPitch) { return; }
     var pts = [];   // build in a local array, assign ONCE at the end
     // Place in rows of `colsPerRow`; even rows start at x=0, odd rows offset by
     // offX so they interlock.
     var colsPerRow = Math.max(1, Math.floor(hive.width / hive.colPitch));
+    // DEBUG: log the inputs that determine the lattice (is hive.width resolved?).
+    console.log("hive DEBUG: width=", hive.width, "colPitch=", hive.colPitch, "-> colsPerRow=", colsPerRow)
     for (var i = 0; i < count; i++) {
       var row = Math.floor(i / colsPerRow);
       var col = i % colsPerRow;
@@ -67,8 +72,16 @@ Item {
     hive.contentH = Math.ceil(nrows * hive.rowPitch + hive.cellD);
     // Assign the fully-built array ONCE. QML `var` properties do NOT re-notify
     // on in-place mutation (push), so assigning `= []` then pushing leaves the
+    // tiles bound to an empty array (all x=0 — the single-diamond regression,
+    // 08-29). A single assignment of a populated array fires the change and the
     // tiles' x/y bindings re-evaluate to their real positions.
     hive.clusterPos = pts;
+    // DEBUG: what did we actually compute for positions + content size?
+    console.log("hive DEBUG: clusterPos.len=", hive.clusterPos.length, "contentW=", hive.contentW,
+      "contentH=", hive.contentH, "first3=",
+      hive.clusterPos.length > 0 ? hive.clusterPos[0].x + "," + hive.clusterPos[0].y : "none",
+      hive.clusterPos.length > 1 ? hive.clusterPos[1].x + "," + hive.clusterPos[1].y : "",
+      hive.clusterPos.length > 2 ? hive.clusterPos[2].x + "," + hive.clusterPos[2].y : "")
   }
 
   onModelChanged: Qt.callLater(hive.rebuild)
@@ -88,6 +101,7 @@ Item {
 
     // EXPLICIT content container. A bare Repeater child of Flickable doesn't get
     // a sized contentItem — its delegates collapse to the origin (the
+    // "single-diamond" regression, 08-29). Give the content an explicit Item of
     // the cluster size so tile x/y land in a real, sized area.
     Item {
       width: hive.contentW
@@ -107,27 +121,10 @@ Item {
           x: hive.clusterPos.length > index ? hive.clusterPos[index].x : 0
           y: hive.clusterPos.length > index ? hive.clusterPos[index].y : 0
           property bool hovered: false
-          Component.onCompleted:
+          // DEBUG: log each tile's assigned position at instantiation.
+          Component.onCompleted: console.log("tile DEBUG: idx", index, "x=", x, "y=", y)
 
-        // Diamond drop shadow, per tile (task t_329954bf re-added). Shadow
-        // the CROP directly (source: crop) so the shadow follows the image's
-        // diamond alpha — NOT a solid-black shadowSrc rectangle behind the tile
-        // (085771f), which showed through the gap when the image was inset and
-        // was removed in 578aa18. The crop's rotated+scaled clip already yields
-        // diamond alpha, so the DropShadow needs no output transform of its own.
-        DropShadow {
-          id: tileShadow
-          anchors.fill: parent
-          source: crop
-          radius: 6
-          samples: 13
-          color: "#c0000000"      // 75% black, matching the niri window shadow
-          horizontalOffset: 2
-          verticalOffset: 3
-          transparentBorder: true
-          spread: 0
-        }
-
+        // Diamond crop — restored from 1977c3e: rotated+scaled `clip:true`
         // container (no OpacityMask — that painted a white diamond).
         Item {
           id: crop

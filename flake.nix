@@ -6,7 +6,6 @@
 
     flake-parts = {
       url = "github:hercules-ci/flake-parts";
-      inputs.nixpkgs.follows = "nixpkgs";
     };
 
     home-manager = {
@@ -16,11 +15,16 @@
 
     hermes-agent = {
       url = "github:NousResearch/hermes-agent/ad8f12f45b7e97cbac37f686724048837b14169b";
-      inputs.nixpkgs.follows = "nixpkgs";
     };
 
     zen-browser = {
       url = "github:0xc000022070/zen-browser-flake";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+
+    # QML plugin exposing niri IPC to QuickShell (used by the bar).
+    qml-niri = {
+      url = "github:imiric/qml-niri";
       inputs.nixpkgs.follows = "nixpkgs";
     };
   };
@@ -40,7 +44,9 @@
         homeManagerModules.infernixos =
           args @ { config, lib, pkgs, ... }:
           import ./homeManagerModules/desktop.nix (args // {
-            inputs = { inherit (inputs) zen-browser; };
+            inputs = {
+              inherit (inputs) zen-browser qml-niri hermes-agent;
+            };
           });
 
         nixosConfigurations.infernixos = inputs.nixpkgs.lib.nixosSystem {
@@ -57,8 +63,6 @@
                 isNormalUser = true;
                 extraGroups = [ "wheel" ];
               };
-              infernixos.system.primaryUser = "infernixos";
-              home-manager.users.infernixos.infernixos.desktop.hermes.enable = false;
               # demo host: no hermes gateway package wired; consumers set it or disable
               # ponytail: throwaway demo host; consumers provide real hardware config
               fileSystems."/" = {

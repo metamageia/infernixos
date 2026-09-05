@@ -30,18 +30,6 @@ in
       '';
     };
 
-    hermesCrashHook = mkOption {
-      type = types.bool;
-      default = true;
-      description = ''
-        Wire systemd-coredump to notify the primary user's manager on any
-        crash, where the hermes-crash-diagnose user path unit (home-manager
-        module, infernixos.desktop.hermes.enable) picks it up and hands the
-        coredump to Hermes. Requires exactly one graphical user; set
-        `infernixos.system.primaryUser` to their name.
-      '';
-    };
-
     hermesEnable = mkOption {
       type = types.bool;
       default = true;
@@ -60,11 +48,26 @@ in
         (rendered as config.yaml). Consumers must set the model provider here.
       '';
     };
+  };
 
-    primaryUser = mkOption {
-      type = types.nullOr types.str;
-      default = null;
-      description = "User whose manager receives crash-diagnosis triggers.";
+  options.infernixos.desktop = {
+    enable = mkOption {
+      type = types.bool;
+      default = false;
+      description = ''
+        Enable the infernixos desktop: the regreet GUI greeter and the niri
+        compositor. Off by default so headless/core installations stay
+        headless; a graphical consumer enables this explicitly.
+      '';
+    };
+
+    hermesClientUsers = mkOption {
+      type = types.listOf types.str;
+      default = [ ];
+      description = ''
+        Login accounts granted the `hermes` group so their Hermes desktop/CLI
+        clients can read the gateway state in /var/lib/hermes/.hermes.
+      '';
     };
   };
 
@@ -72,12 +75,13 @@ in
     (mkIf config.infernixos.system.enable {
       environment.systemPackages = with pkgs; [
         curl
+        fd
         git
         gnupg
         jq
+        nh
         ripgrep
         tmux
-        vim
         wget
       ] ++ config.infernixos.system.extraPackages;
     })
@@ -90,52 +94,34 @@ in
         addToSystemPackages = true;
         settings = config.infernixos.system.hermesSettings;
       };
-    })
 
-    (mkIf config.infernixos.system.hermesCrashHook {
+      users.users.hermes = {
+        isSystemUser = true;
+        group = "hermes";
+        home = "/var/lib/hermes";
+        createHome = true;
+      };
+      users.groups.hermes = { };
+
       assertions = [
         {
-          assertion = config.infernixos.system.primaryUser != null;
-          message = "infernixos.system.hermesCrashHook requires infernixos.system.primaryUser.";
+          assertion = config.infernixos.desktop.enable -> config.infernixos.desktop.hermesClientUsers != [ ];
+          message = "infernixos.desktop.enable requires infernixos.desktop.hermesClientUsers so desktop users can read the gateway state.";
         }
       ];
 
-      # A coredump@ unit instance completes after every crash. The simplest
-      # robust wiring is a systemd path unit watching the coredump
-      # storage dir (default /var/lib/systemd/coredump), which gains a file
-      # per crash when storage=external (the NixOS default).
-      systemd.paths.hermes-crash-watch = {
-        description = "Watch for new coredumps to trigger Hermes diagnosis";
-        pathConfig = {
-          PathExistsGlob = "/var/lib/systemd/coredump/*";
-          # Trigger at most once per new file; the unit resets the watcher.
-          Unit = "hermes-crash-relay.service";
-          MakeDirectory = true;
-        };
-        wantedBy = [ "multi-user.target" ];
-      };
+      systemd.services.hermes-agent.environment.HERMES_HOME_MODE = "2770";
+    })
 
-      systemd.services.hermes-crash-relay = {
-        description = "Relay a new coredump to the user's hermes-crash-diagnose unit";
-        serviceConfig = {
-          Type = "oneshot";
-          TimeoutSec = 15;
-        };
-        # Fire-and-forget into the user's manager; never blocks, never fails
-        # the boot if the user session is gone.
-        script = ''
-          user="${config.infernixos.system.primaryUser}"
-          uid="$(id -u "$user" 2>/dev/null)" || exit 0
-          [ -n "$uid" ] || exit 0
-          runuser_out="$(mktemp)"
-          if ${pkgs.util-linux}/bin/runuser -u "$user" -- \
-            ${pkgs.systemd}/bin/systemctl --user start hermes-crash-diagnose.service \
-            >"$runuser_out" 2>&1; then
-            :
-          fi
-          rm -f "$runuser_out"
-        '';
-      };
+    (mkIf config.infernixos.desktop.enable {
+      programs.regreet.enable = true;
+      programs.niri.enable = true;
+
+      users.users = lib.listToAttrs (map
+        (name: lib.nameValuePair name {
+          extraGroups = [ "hermes" ];
+        })
+        config.infernixos.desktop.hermesClientUsers);
     })
   ];
 }

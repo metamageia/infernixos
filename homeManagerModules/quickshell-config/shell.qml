@@ -7,6 +7,7 @@ import Quickshell.Wayland
 import Niri
 
 // QuickShell bar themed from wallust, with a native fade-out / fade-in
+// transition between themes (Gage's "solid" Phase-4a layout).
 //
 // Layout (single full-width PanelWindow, flush to screen edges, no side
 // margins, no rounded corners, no dividers):
@@ -14,6 +15,7 @@ import Niri
 //   CENTER : clock
 //   RIGHT  : wifi, volume, system tray
 //
+// NO calendar / NO date-click (per Gage).
 //
 // Theme: every color — including the SVG icon tints — is driven by the wallust
 // palette (keys bg/fg/accent/gold/muted/urgent/green/blue) via the FileView +
@@ -77,7 +79,16 @@ ShellRoot {
   readonly property string pickerStatePath: (Quickshell.env("XDG_CONFIG_HOME") || "").length > 0
     ? Quickshell.env("XDG_CONFIG_HOME") + "/quickshell/picker-state"
     : Quickshell.env("HOME") + "/.config/quickshell/picker-state"
-  readonly property string wallpapersDir: Quickshell.env("QUICKSHELL_WALLPAPERS_DIR") || ""
+  // Multi-dir wallpaper scan: QUICKSHELL_WALLPAPER_DIRS is colon-joined
+  // (paths can't contain ':'), each a read-only store path. Old single-dir
+  // var still honored as fallback.
+  readonly property var wallpapersDirs: {
+    const multi = Quickshell.env("QUICKSHELL_WALLPAPER_DIRS")
+    if (multi !== undefined && multi.length > 0) return multi.split(":").filter(d => d.length > 0)
+    const single = Quickshell.env("QUICKSHELL_WALLPAPERS_DIR")
+    return single && single.length > 0 ? [single] : []
+  }
+  readonly property string wallpapersDir: wallpapersDirs.length > 0 ? wallpapersDirs[0] : ""
   property bool pickerOpen: false
   property string lastWallpaperPath: ""
   // Phase 7 — the keybind popup's toggle state file (written by keybind-popup-toggle,
@@ -128,30 +139,39 @@ ShellRoot {
   // Phase 6 — enumerate wallpapers (find | sort) into wpModel, marking the
   // active one. Re-run on every open so newly committed wallpapers appear.
   function scanWallpapers() {
-    if (root.wallpapersDir.length === 0) return
+    if (root.wallpapersDirs.length === 0) return
     scanProc.running = true
   }
   Process {
     id: scanProc
+    // Scan every dir in QUICKSHELL_WALLPAPER_DIRS (colon-joined), print full
+    // paths, sort by basename. Full path per line: basename-only would lose
+    // which dir a user wallpaper came from.
     command: ["/bin/sh", "-c",
-      "find \"$1\" -maxdepth 1 -type f \\( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' -o -iname '*.webp' \\) -printf '%f\\n' | sort",
-      "sh", root.wallpapersDir]
+      `for d in \$(echo "\$DIRS" | tr ':' ' '); do
+  [ -d "\$d" ] || continue
+  find "\$d" -maxdepth 1 -type f \\( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' -o -iname '*.webp' \\) -print
+done | awk -F/ '{ print \$NF "\\t" \$0 }' | sort | cut -f2-`,
+      "sh"]
+    environment: ({ DIRS: root.wallpapersDirs.join(":") })
     running: false
     stdout: StdioCollector {
       onStreamFinished: {
         wpModel.clear()
-        const names = this.text.split("\n").filter(function (n) { return n.trim().length > 0 })
-        // and how many items did we append?
-        for (const name of names) {
-          const file = root.wallpapersDir + "/" + name
+        const files = this.text.split("\n").filter(function (n) { return n.trim().length > 0 })
+        console.log("picker DEBUG: scan returned", files.length, "files; first:", files[0])
+        for (const file of files) {
+          const name = file.substring(file.lastIndexOf("/") + 1)
           wpModel.append({
             file: file,
             name: name,
             isActive: (file === root.lastWallpaperPath)
           })
         }
+        console.log("picker DEBUG: wpModel.count =", wpModel.count)
         // In-place clear+append on a ListModel does NOT fire the model's
         // onModelChanged, so the hive would never recompute its layout. Call
+        // rebuild() explicitly after the scan populates the model (hit 08-29).
         hive.rebuild()
       }
     }
@@ -356,7 +376,7 @@ ShellRoot {
         }
       }
 
-      // RIGHT — hermes, wifi, volume
+      // RIGHT — wifi, volume
       RowLayout {
         id: right
         spacing: 12
@@ -364,65 +384,6 @@ ShellRoot {
           right: parent.right
           rightMargin: 8
           verticalCenter: parent.verticalCenter
-        }
-
-        // Hermes gateway status, read straight from the gateway's own
-        // gateway_state.json (path injected via QUICKSHELL_HERMES_STATE by the
-        // bar wrapper; falls back to $HERMES_HOME/gateway_state.json). Fields
-        // used: gateway_state ("running"|...), active_agents, platforms (any
-        // "fatal" degrades the dot). FileView watchChanges = event-driven.
-        // Click opens the Hermes desktop app. Missing file = muted "hermes --".
-        readonly property string hermesStatePath: (Quickshell.env("QUICKSHELL_HERMES_STATE") || "").length > 0
-          ? Quickshell.env("QUICKSHELL_HERMES_STATE")
-          : (Quickshell.env("HERMES_HOME") || "") + "/gateway_state.json"
-        property string hermesState: ""
-        property bool hermesDegraded: false
-        FileView {
-          id: hermesStateView
-          path: right.hermesStatePath
-          watchChanges: true
-          onFileChanged: hermesStateView.reload()
-          onLoaded: {
-            try {
-              const s = JSON.parse(this.text())
-              right.hermesState = s.gateway_state || "unknown"
-              let fatal = false
-              for (const k in (s.platforms || {})) {
-                if (s.platforms[k].state === "fatal") { fatal = true; break }
-              }
-              right.hermesDegraded = fatal
-              hermes.text = "hermes " + (right.hermesState === "running"
-                ? (s.active_agents > 0 ? s.active_agents + " agent" + (s.active_agents > 1 ? "s" : "") : "on")
-                : right.hermesState)
-              hermesIcon.source = fatal ? "hermes-warn.svg" : "hermes.svg"
-              hermes.color = right.hermesState === "running"
-                ? (fatal ? root.barUrgent : root.barGreen)
-                : root.barMuted
-            } catch (e) {
-              hermes.text = "hermes --"
-              hermes.color = root.barMuted
-              hermesIcon.source = "hermes.svg"
-            }
-          }
-        }
-        Text {
-          id: hermes
-          color: root.barMuted
-          font.family: root.uiFont
-          font.pixelSize: 13
-          text: "hermes --"
-          MouseArea {
-            anchors.fill: parent
-            cursorShape: Qt.PointingHandCursor
-            onClicked: Quickshell.execDetached(["hermes-desktop"])
-          }
-        }
-        ThemeIcon {
-          id: hermesIcon
-          source: "hermes.svg"
-          tint: hermes.color
-          size: 14
-          anchors.verticalCenter: parent.verticalCenter
         }
 
         // wifi via NetworkManager `nmcli` (no compositor dependency).
@@ -556,6 +517,7 @@ ShellRoot {
   // theme, no literals). `visible` is bound to root.pickerOpen — WindowInterface
   // does expose `visible` (verified in the installed .qmltypes).
   // The window is TRANSPARENT: only the diamonds paint, so they hover over the
+  // desktop. There is NO background Rectangle / box (Gage, 08-29: "don't want it
   // in a box"). `color: transparent` on the window is valid (WindowInterface
   // exposes `color`).
   PanelWindow {
