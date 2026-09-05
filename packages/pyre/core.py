@@ -102,7 +102,7 @@ def _apps_for_mime(mime: str) -> list[dict]:
             e = _parse_desktop(f)
             if not e.get("Exec"):
                 continue
-            if e.get("NoDisplay") == "true" or e.get("Hidden") == "true":
+            if e.get("Hidden") == "true":
                 continue
             if _mime_matches(e.get("MimeType", ""), mime):
                 apps[f.name] = {
@@ -807,9 +807,14 @@ class FileController(QObject):
 
         threading.Thread(target=work, daemon=True).start()
 
-    @Slot(str, str)
-    def openWithCommand(self, path: str, command: str):
-        """Open `path` with a raw command string (%f expanded, else appended)."""
+    @Slot(str, str, bool, str)
+    def openWithCommand(self, path: str, command: str, remember: bool = False,
+                        mime: str = ""):
+        """Open `path` with a raw command string (%f expanded, else appended).
+
+        remember+mime: also derive a .desktop id from the command's first word
+        and persist it as the mime default, so a manual choice sticks.
+        """
         p = Path(path)
         quoted = shlex.quote(str(p))
         cmd = command.replace("%f", quoted).replace("%F", quoted)
@@ -822,6 +827,17 @@ class FileController(QObject):
         if not argv:
             self.statusChanged.emit("Empty command")
             return
+        if remember and mime:
+            exe = Path(argv[0]).name
+            for d in _desktop_dirs():
+                for f in d.glob(f"{exe}*.desktop"):
+                    e = _parse_desktop(f)
+                    if e.get("Exec", "").startswith(exe):
+                        _set_default(mime, f.name)
+                        break
+                else:
+                    continue
+                break
         try:
             subprocess.Popen(argv, start_new_session=True,
                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)

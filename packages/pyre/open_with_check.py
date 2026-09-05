@@ -83,7 +83,15 @@ with tempfile.TemporaryDirectory() as td:
         "Name=Hidden App\n"
         "Exec=hidden %f\n"
         "MimeType=text/plain;\n"
-        "NoDisplay=true\n"  # must be filtered out of discovery
+        "NoDisplay=true\n"  # kept: NoDisplay entries are valid open-with handlers (okular mime aliases)
+    )
+    (d / "applications" / "buried.desktop").write_text(
+        "[Desktop Entry]\n"
+        "Type=Application\n"
+        "Name=Buried App\n"
+        "Exec=buried %f\n"
+        "MimeType=text/plain;\n"
+        "Hidden=true\n"  # filtered: Hidden means deleted/uninstalled
     )
     (d / "applications" / "bar.desktop").write_text(
         "[Desktop Entry]\n"
@@ -101,8 +109,9 @@ with tempfile.TemporaryDirectory() as td:
     try:
         apps = core._apps_for_mime("text/plain")
         ids = [a["id"] for a in apps]
-        check("apps: finds foo, excludes bar (mime) + hidden (NoDisplay)",
-              "foo.desktop" in ids and "bar.desktop" not in ids and "hidden.desktop" not in ids, str(ids))
+        check("apps: finds foo + hidden (NoDisplay is a valid handler), excludes bar (mime) + buried (Hidden)",
+              "foo.desktop" in ids and "hidden.desktop" in ids
+              and "bar.desktop" not in ids and "buried.desktop" not in ids, str(ids))
         foo = next(a for a in apps if a["id"] == "foo.desktop")
         check("apps: name+icon surfaced", foo["name"] == "Foo Viewer" and foo["icon"] == "foo-icon", str(foo))
         check("apps: glob match finds foo for image/png",

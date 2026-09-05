@@ -526,7 +526,8 @@ ApplicationWindow {
         }
         onAccepted: {
             if (customCmd.text !== "") {
-                controller.openWithCommand(openWithDlg.targetPath, customCmd.text)
+                controller.openWithCommand(openWithDlg.targetPath, customCmd.text,
+                                           rememberChk.checked, openWithDlg.targetMime)
                 return
             }
             if (openWithList.currentIndex >= 0 && openWithAppModel.count > 0) {
