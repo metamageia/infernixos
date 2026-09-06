@@ -132,6 +132,9 @@ in
       services.hermes-agent = {
         enable = true;
         user = cfg.hermesUser;
+        # Upstream's createUser declares a system user with isSystemUser; wrong
+        # when hermesUser is a login user (collides with isNormalUser).
+        createUser = cfg.hermesUser == "hermes";
         group = "users";
         addToSystemPackages = true;
         settings = config.infernixos.system.hermesSettings;
@@ -155,14 +158,6 @@ in
         environment.API_SERVER_ENABLED = mkIf config.infernixos.system.hermesEnable "true";
         environment.API_SERVER_PORT = toString config.infernixos.system.hermesApiServerPort;
       };
-
-      users.users.hermes = mkIf (cfg.hermesUser == "hermes") {
-        isSystemUser = true;
-        group = "hermes";
-        home = "/var/lib/hermes";
-        createHome = true;
-      };
-      users.groups.hermes = mkIf (cfg.hermesUser == "hermes") { };
 
       systemd.services.hermes-agent.environment.HERMES_HOME_MODE = "2770";
 
