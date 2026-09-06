@@ -879,14 +879,14 @@ in {
         SKIN="${hermesSkinsDir}/wallust.yaml"
         last=""
         while true; do
-          pid=$("${pkgs.procps}/bin/pgrep" -f 'share/hermes-desktop' | head -n1 || true)
+          pid=$("${pkgs.procps}/bin/pgrep" -f 'share/hermes-desktop' | "${pkgs.coreutils}/bin/head" -n1 || true)
           if [ -n "$pid" ] && [ "$pid" != "$last" ]; then
             last="$pid"
             # Desktop (re)launched: nudge the skin a few times to cover Electron
             # boot + gateway connect latency; the first post-connect touch paints.
-            for d in 2 4 4; do sleep "$d"; touch "$SKIN"; done
+            for d in 2 4 4; do "${pkgs.coreutils}/bin/sleep" "$d"; "${pkgs.coreutils}/bin/touch" "$SKIN"; done
           fi
-          sleep 2
+          "${pkgs.coreutils}/bin/sleep" 2
         done
       '');
       Restart = "on-failure";
