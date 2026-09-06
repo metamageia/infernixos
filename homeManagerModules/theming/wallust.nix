@@ -453,7 +453,8 @@ in {
       "minimizeToTray": true,
       "arRPC": true,
       "enableSplashScreen": false,
-      "splashBackground": "{{background}}"
+      "splashBackground": "{{background}}",
+      "customTitlebar": true
     }
   '';
 
