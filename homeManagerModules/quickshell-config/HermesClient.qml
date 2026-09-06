@@ -12,8 +12,10 @@ import Quickshell.Io
 QtObject {
   id: client
 
-  readonly property string baseUrl: "http://127.0.0.1:" + (Quickshell.env("QUICKSHELL_HERMES_API_PORT") || "8642")
-  readonly property string keyPath: "/var/lib/hermes/.hermes/api-server-key"
+  // Gateway endpoint + key path injected by the quickshell-bar wrapper (same
+  // runtime-token mechanism hermes desktop uses).
+  readonly property string baseUrl: Quickshell.env("QUICKSHELL_HERMES_API_URL") || ""
+  readonly property string keyPath: Quickshell.env("QUICKSHELL_HERMES_API_KEY_PATH") || ""
   property string apiKey: ""
   // true once /health/detailed answered - drives the "gateway down" state.
   property bool connected: false
@@ -105,33 +107,38 @@ QtObject {
     }
   }
 
-  // Poll gateway health for the agents pill. Light: every 5s.
+  // Poll gateway + refresh sessions for the agents pill. Light: every 5s.
+  // activeAgents = open (not ended / not archived) sessions across the
+  // gateway — /health/detailed.active_agents only counts API-server runs, so
+  // it reads 0 while desktop/cli sessions are live. Count sessions instead.
   function pollHealth() {
-    _jsonXhr("GET", "/health/detailed", null, function (status, data) {
-      client.connected = status === 200 && !!data
-      if (client.connected && data && data.active_agents !== undefined) {
-        client.activeAgents = typeof data.active_agents === "number"
-          ? data.active_agents
-          : (typeof data.active_agents === "object" ? Object.keys(data.active_agents).length : 0)
-      } else if (!client.connected) {
-        client.activeAgents = 0
-      }
-    })
+    client.refreshSessions()
   }
 
   // Refresh the session list for the HUD dropdown.
   function refreshSessions() {
-    _jsonXhr("GET", "/api/sessions?limit=30", null, function (status, data) {
-      if (status !== 200 || !data) { client.sessions = []; client.sessionsUpdated(); return }
-      const rows = (data.sessions || []).map(function (s) {
+    _jsonXhr("GET", "/api/sessions?limit=50", null, function (status, data) {
+      if (status !== 200 || !data) {
+        client.connected = false
+        client.sessions = []
+        client.activeAgents = 0
+        client.sessionsUpdated()
+        return
+      }
+      client.connected = true
+      const list = data.data || []
+      const rows = list.map(function (s) {
         return {
           id: s.id || s.session_id || "",
           title: (s.title || "").trim() || "Untitled",
           pinned: !!s.pinned,
-          updatedAt: s.updated_at || s.last_active || ""
+          updatedAt: s.last_active || "",
+          endedAt: s.ended_at || null,
+          archived: !!s.archived
         }
       }).filter(function (s) { return s.id !== "" })
       client.sessions = rows
+      client.activeAgents = rows.filter(function (s) { return !s.endedAt && !s.archived }).length
       client.sessionsUpdated()
     })
   }
@@ -141,7 +148,7 @@ QtObject {
     if (!sessionId) { client.messages = []; client.messagesUpdated(); return }
     _jsonXhr("GET", "/api/sessions/" + encodeURIComponent(sessionId) + "/messages", null, function (status, data) {
       if (status !== 200 || !data) { client.messages = []; client.messagesUpdated(); return }
-      const rows = (data.messages || []).map(function (m) {
+      const rows = (data.data || []).map(function (m) {
         let text = ""
         if (typeof m.content === "string") text = m.content
         else if (Array.isArray(m.content)) {
@@ -189,10 +196,10 @@ QtObject {
             client.sendFailed(data && data.error && data.error.message ? data.error.message : "HTTP " + status)
             return
           }
-          const reply = data.choices && data.choices[0] && data.choices[0].message
-            ? (typeof data.choices[0].message.content === "string"
-                ? data.choices[0].message.content
-                : JSON.stringify(data.choices[0].message.content))
+          const reply = data.message && data.message.content
+            ? (typeof data.message.content === "string"
+                ? data.message.content
+                : JSON.stringify(data.message.content))
             : ""
           if (reply) client.appendLocal("assistant", reply)
           client.loadMessages(sessionId)
@@ -226,7 +233,8 @@ QtObject {
         client.sendFailed("Could not create session (HTTP " + status + ")")
         return
       }
-      onDone(data.id || data.session_id)
+      const s = data.session || data
+      onDone(s.id || s.session_id)
     })
   }
 

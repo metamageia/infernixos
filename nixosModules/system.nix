@@ -17,6 +17,8 @@ let
   # Same runtime-file treatment as the token so bar clients in the hermes group
   # can read it without it ever landing in the Nix store.
   apiKeyPath = "${config.services.hermes-agent.stateDir}/.hermes/api-server-key";
+  # Prefixed env file Hermes merges into .env (the raw key has no KEY= line).
+  apiKeyEnvPath = "${config.services.hermes-agent.stateDir}/.hermes/api-server-key.env";
 in
 {
   options.infernixos.system = with lib; {
@@ -157,6 +159,8 @@ in
         # platform on. Disabled entirely when the gateway is off.
         environment.API_SERVER_ENABLED = mkIf config.infernixos.system.hermesEnable "true";
         environment.API_SERVER_PORT = toString config.infernixos.system.hermesApiServerPort;
+        # Key merged into .env by upstream activation (survives rebuilds).
+        environmentFiles = [ apiKeyEnvPath ];
       };
 
       systemd.services.hermes-agent.environment.HERMES_HOME_MODE = "2770";
@@ -179,13 +183,16 @@ in
         '';
       };
 
-      # Seed the API-server bearer key into .env exactly once (bar HUD client +
-      # any local OpenAI-compat frontend). API_SERVER_KEY has no _FILE
-      # indirection upstream, so the runtime file IS .env — writable, never in
-      # the store. Same once-only pattern as the backend session token: survives
-      # rebuilds, never regenerated behind a connected client.
-      systemd.services.hermes-agent = {
-        preStart = ''
+      # Seed the API-server bearer key (bar HUD client + any local OpenAI-compat
+      # frontend). Hermes regenerates $HERMES_HOME/.env from scratch on every
+      # activation, so appending the key there (preStart) gets wiped. The key
+      # therefore goes in via upstream's environmentFiles mechanism: an env file
+      # (prefix line) is cat'd into .env on each activation.
+      #   apiKeyPath     raw key  — read by the bar (no prefix).
+      #   apiKeyEnvPath  API_SERVER_KEY=<key> — Hermes merges into .env.
+      system.activationScripts."hermes-api-server-key" = {
+        deps = [ "users" ];
+        text = ''
           mkdir -p "$(dirname "${apiKeyPath}")"
           if [ ! -s "${apiKeyPath}" ]; then
             umask 037
@@ -193,11 +200,13 @@ in
               | ${pkgs.coreutils}/bin/base64 | ${pkgs.coreutils}/bin/tr -d '\n' \
               > "${apiKeyPath}"
           fi
-          if ! ${pkgs.gnugrep}/bin/grep -q '^API_SERVER_KEY=' "$(dirname "${apiKeyPath}")/.env" 2>/dev/null; then
-            printf 'API_SERVER_KEY=%s\n' "$(cat "${apiKeyPath}")" >> "$(dirname "${apiKeyPath}")/.env"
-          fi
+          printf 'API_SERVER_KEY=%s\n' "$(cat "${apiKeyPath}")" > "${apiKeyEnvPath}"
         '';
       };
+
+      # Upstream's hermes-agent-setup writes .env from environmentFiles; make it
+      # wait for our seed above so the key file is always present first.
+      system.activationScripts."hermes-agent-setup".deps = [ "hermes-api-server-key" ];
 
       # Upstream HM demo requires these for xdg.portal desktop files and
       # portal D-Bus configs to resolve through home-manager paths.
