@@ -1,0 +1,7 @@
+{
+  "name": "hello-clock",
+  "kind": "app",
+  "entry": {"launcher": "hello-clock"},
+  "permissions": [],
+  "data_paths": ["notes.json"]
+}

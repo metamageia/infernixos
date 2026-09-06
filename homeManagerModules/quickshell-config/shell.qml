@@ -54,6 +54,28 @@ import Niri
 ShellRoot {
   id: root
 
+  // infernixos extension loader: instantiates registered user widget
+  // extensions in this same ShellRoot/process; each fails independently.
+  ExtensionLoader {
+    shellRoot: root
+  }
+
+  // Hermes gateway API client (single instance; the bar is the only consumer).
+  HermesClient {
+    id: hermes
+    contextProvider: function () { return niriBridge.contextLine() }
+    captureProvider: function (onDone) { return niriBridge.captureWindow(onDone) }
+  }
+  NiriBridge {
+    id: niriBridge
+  }
+
+  // Bar popups: agents dropdown + chat log. Bar buttons flip these directly
+  // (no state-file dance — that pattern exists only for keybind-spawned popups).
+  property bool agentsOpen: false
+  property bool chatOpen: false
+  property bool sessionsOpen: false
+
   // Resolve the palette path (launcher exports QUICKSHELL_WALLUST_PALETTE).
   readonly property string palettePath: (Quickshell.env("QUICKSHELL_WALLUST_PALETTE") || "").length > 0
     ? Quickshell.env("QUICKSHELL_WALLUST_PALETTE")
@@ -300,7 +322,7 @@ done | awk -F/ '{ print \$NF "\\t" \$0 }' | sort | cut -f2-`,
       opacity: 0.93
       radius: 0
 
-      // LEFT — niri workspaces
+      // LEFT — hermes icon (activate-or-spawn desktop) + niri workspaces
       RowLayout {
         id: left
         spacing: 6
@@ -308,6 +330,30 @@ done | awk -F/ '{ print \$NF "\\t" \$0 }' | sort | cut -f2-`,
           left: parent.left
           leftMargin: 8
           verticalCenter: parent.verticalCenter
+        }
+        Rectangle {
+          id: hermesBtn
+          width: 20
+          height: 20
+          radius: 0
+          color: hermesBtnMa.containsMouse ? root.barAccent : "transparent"
+          Text {
+            anchors.centerIn: parent
+            text: "H"
+            color: hermesBtnMa.containsMouse ? root.barBg : root.barAccent
+            font.family: root.uiFont
+            font.pixelSize: 13
+            font.bold: true
+          }
+          MouseArea {
+            id: hermesBtnMa
+            anchors.fill: parent
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+            onClicked: Quickshell.execDetached(["/bin/sh", "-c",
+              "hermes-desktop >/dev/null 2>&1 & sleep 0.3; " +
+              "if ! niri msg windows | grep -qi 'Hermes'; then hermes-desktop; fi"])
+          }
         }
         ThemeIcon {
           source: "workspace.svg"
@@ -347,32 +393,172 @@ done | awk -F/ '{ print \$NF "\\t" \$0 }' | sort | cut -f2-`,
         }
       }
 
-      // CENTER — clock
-      Text {
-        id: clock
+      // CENTER — Hermes HUD: agents pill, session selector, input, capture toggle
+      RowLayout {
+        id: hud
+        spacing: 8
         anchors {
           horizontalCenter: parent.horizontalCenter
           verticalCenter: parent.verticalCenter
         }
-        text: Qt.formatDateTime(new Date(), "ddd HH:mm:ss")
-        color: root.barAccent
-        font.family: root.uiFont
-        font.pixelSize: 13
-        Timer {
-          interval: 1000
-          running: true
-          repeat: true
-          onTriggered: clock.text = Qt.formatDateTime(new Date(), "ddd HH:mm:ss")
+
+        // Agents pill: green when agents are working, dim otherwise. Click opens
+        // the agents popup.
+        Rectangle {
+          implicitWidth: agentsRow.implicitWidth + 14
+          height: 20
+          radius: 10
+          color: hermes.activeAgents > 0 ? root.barGreen : "transparent"
+          border.color: root.barMuted
+          border.width: 1
+          Row {
+            id: agentsRow
+            anchors.centerIn: parent
+            spacing: 5
+            Rectangle {
+              width: 7; height: 7; radius: 4
+              anchors.verticalCenter: parent.verticalCenter
+              color: hermes.activeAgents > 0 ? root.barGreen : root.barMuted
+            }
+            Text {
+              anchors.verticalCenter: parent.verticalCenter
+              text: hermes.connected
+                ? (hermes.activeAgents > 0
+                    ? hermes.activeAgents + (hermes.activeAgents === 1 ? " agent" : " agents")
+                    : "idle")
+                : "gateway off"
+              color: hermes.activeAgents > 0 ? root.barBg : root.barMuted
+              font.family: root.uiFont
+              font.pixelSize: 11
+            }
+          }
+          MouseArea {
+            anchors.fill: parent
+            cursorShape: Qt.PointingHandCursor
+            onClicked: root.agentsOpen = !root.agentsOpen
+          }
         }
-      }
-      ThemeIcon {
-        source: "clock.svg"
-        tint: root.barAccent
-        size: 13
-        anchors {
-          right: clock.left
-          rightMargin: 5
-          verticalCenter: parent.verticalCenter
+
+        // Session selector: pinned/recent dropdown; empty = new session on send.
+        Rectangle {
+          implicitWidth: sessionText.implicitWidth + 20
+          height: 20
+          radius: 10
+          color: "transparent"
+          border.color: root.barMuted
+          border.width: 1
+          Text {
+            id: sessionText
+            anchors.centerIn: parent
+            width: Math.min(implicitWidth, 140)
+            text: hermes.currentSessionTitle !== "" ? hermes.currentSessionTitle : "new"
+            color: hermes.currentSessionTitle !== "" ? root.barFg : root.barMuted
+            font.family: root.uiFont
+            font.pixelSize: 11
+            elide: Text.ElideRight
+          }
+          MouseArea {
+            anchors.fill: parent
+            cursorShape: Qt.PointingHandCursor
+            onClicked: {
+              root.sessionsOpen = !root.sessionsOpen
+              if (root.sessionsOpen) hermes.refreshSessions()
+            }
+          }
+        }
+
+        // HUD input — one text field, Enter sends to the selected session.
+        Rectangle {
+          width: 260
+          height: 20
+          radius: 10
+          color: root.barBg
+          border.color: hudInput.activeFocus ? root.barAccent : root.barMuted
+          border.width: 1
+          TextInput {
+            id: hudInput
+            anchors.fill: parent
+            anchors.leftMargin: 8
+            anchors.rightMargin: 8
+            verticalAlignment: TextInput.AlignVCenter
+            color: root.barFg
+            font.family: root.uiFont
+            font.pixelSize: 11
+            clip: true
+            enabled: hermes.connected && !hermes.busy
+            Keys.onReturnPressed: {
+              hermes.send(text)
+              text = ""
+            }
+            Keys.onEnterPressed: {
+              hermes.send(text)
+              text = ""
+            }
+            Keys.onEscapePressed: focus = false
+          }
+          Text {
+            visible: hudInput.text === "" && !hudInput.activeFocus
+            anchors.fill: parent
+            anchors.leftMargin: 8
+            verticalAlignment: Text.AlignVCenter
+            text: hermes.busy ? "thinking…" : "ask hermes"
+            color: root.barMuted
+            font.family: root.uiFont
+            font.pixelSize: 11
+          }
+        }
+
+        // Critical toggle: screen-context capture. On = next message includes
+        // focused-window metadata (+ screenshot when the window target works).
+        Rectangle {
+          width: 20
+          height: 20
+          radius: 10
+          color: hermes.captureContext ? root.barAccent : "transparent"
+          border.color: hermes.captureContext ? root.barAccent : root.barMuted
+          border.width: 1
+          Text {
+            anchors.centerIn: parent
+            text: "S"
+            color: hermes.captureContext ? root.barBg : root.barMuted
+            font.family: root.uiFont
+            font.pixelSize: 11
+            font.bold: true
+          }
+          MouseArea {
+            anchors.fill: parent
+            cursorShape: Qt.PointingHandCursor
+            onClicked: {
+              hermes.captureContext = !hermes.captureContext
+              if (hermes.captureContext) niriBridge.refreshFocus()
+            }
+          }
+        }
+
+        // Chat-log button: opens the session chat popup.
+        Rectangle {
+          width: 20
+          height: 20
+          radius: 10
+          color: root.chatOpen ? root.barAccent : "transparent"
+          border.color: root.chatOpen ? root.barAccent : root.barMuted
+          border.width: 1
+          Text {
+            anchors.centerIn: parent
+            text: "≡"
+            color: root.chatOpen ? root.barBg : root.barMuted
+            font.family: root.uiFont
+            font.pixelSize: 12
+            font.bold: true
+          }
+          MouseArea {
+            anchors.fill: parent
+            cursorShape: Qt.PointingHandCursor
+            onClicked: {
+              root.chatOpen = !root.chatOpen
+              if (root.chatOpen) hermes.loadMessages(hermes.currentSessionId)
+            }
+          }
         }
       }
 
@@ -380,6 +566,8 @@ done | awk -F/ '{ print \$NF "\\t" \$0 }' | sort | cut -f2-`,
       RowLayout {
         id: right
         spacing: 12
+        property string battText: ""
+        property bool battPresent: battText !== ""
         anchors {
           right: parent.right
           rightMargin: 8
@@ -428,6 +616,48 @@ done | awk -F/ '{ print \$NF "\\t" \$0 }' | sort | cut -f2-`,
           running: true
           repeat: true
           onTriggered: wifiProc.running = true
+        }
+
+        // battery/power via sysfs (UPower-free). Hidden entirely on desktops:
+        // if /sys/class/power_supply has no battery, the item collapses to 0px.
+        Process {
+          id: battProc
+          command: ["/bin/sh", "-c",
+            "cap=$(cat /sys/class/power_supply/BAT*/capacity 2>/dev/null | head -1); " +
+            "st=$(cat /sys/class/power_supply/BAT*/status 2>/dev/null | head -1); " +
+            "[ -n \"$cap\" ] && printf '%s%%%s' \"$cap\" \"$([ \"$st\" = Charging ] && echo '+')\" || true"]
+          running: true
+          stdout: StdioCollector {
+            onStreamFinished: right.battText = this.text.trim()
+          }
+        }
+        Timer {
+          interval: 30000
+          running: true
+          repeat: true
+          onTriggered: battProc.running = true
+        }
+        Text {
+          visible: right.battPresent
+          text: right.battText
+          color: root.barAccent
+          font.family: root.uiFont
+          font.pixelSize: 13
+        }
+
+        // clock (moved from center; HUD lives there now)
+        Text {
+          id: clock
+          text: Qt.formatDateTime(new Date(), "ddd HH:mm")
+          color: root.barAccent
+          font.family: root.uiFont
+          font.pixelSize: 13
+          Timer {
+            interval: 1000
+            running: true
+            repeat: true
+            onTriggered: clock.text = Qt.formatDateTime(new Date(), "ddd HH:mm")
+          }
         }
 
         // volume via PipeWire/wireplumber `wpctl`. Scroll = step volume by 5%,
@@ -738,6 +968,305 @@ done | awk -F/ '{ print \$NF "\\t" \$0 }' | sort | cut -f2-`,
     }
   }
 
+
+  // Phase 8 — agents popup: what the gateway reports as active agents, plus
+  // recent session activity when the count is zero. Anchored under the bar's
+  // agents pill; a simple centered layer window (same pattern as hotkeys).
+  PanelWindow {
+    id: agentsPopup
+    visible: root.agentsOpen
+    color: "transparent"
+    focusable: true
+    WlrLayershell.namespace: "quickshell-agents"
+    exclusiveZone: 0
+    width: 420
+    height: 260
+
+    onVisibleChanged: if (visible) Qt.callLater(agentsPanel.forceActiveFocus)
+
+    Rectangle {
+      id: agentsPanel
+      anchors.fill: parent
+      color: root.barBg
+      opacity: 0.93
+      radius: 0
+      Keys.onEscapePressed: root.agentsOpen = false
+      onActiveFocusChanged: {
+        if (!activeFocus && root.agentsOpen) Qt.callLater(forceActiveFocus)
+      }
+
+      Column {
+        x: 16
+        y: 16
+        width: parent.width - 32
+        spacing: 8
+
+        Text {
+          text: "AGENTS"
+          color: root.barGold
+          font.family: root.uiFont
+          font.pixelSize: 13
+          font.bold: true
+        }
+
+        Rectangle { width: parent.width; height: 1; color: root.barMuted; opacity: 0.4 }
+
+        Text {
+          width: parent.width
+          text: !hermes.connected
+            ? "Gateway unreachable (" + hermes.baseUrl + ")"
+            : (hermes.activeAgents > 0
+                ? hermes.activeAgents + " agent(s) active on the gateway."
+                : "No agents currently active.")
+          color: hermes.connected ? root.barFg : root.barUrgent
+          font.family: root.uiFont
+          font.pixelSize: 12
+          wrapMode: Text.WordWrap
+        }
+
+        Rectangle { width: parent.width; height: 1; color: root.barMuted; opacity: 0.4 }
+
+        Text {
+          width: parent.width
+          text: "RECENT SESSIONS"
+          color: root.barMuted
+          font.family: root.uiFont
+          font.pixelSize: 11
+          font.bold: true
+        }
+
+        Repeater {
+          model: hermes.sessions.slice(0, 6)
+          delegate: Text {
+            width: agentsPanel.width - 32
+            text: "• " + modelData.title
+            color: root.barFg
+            font.family: root.uiFont
+            font.pixelSize: 12
+            elide: Text.ElideRight
+          }
+        }
+      }
+
+      MouseArea {
+        anchors.fill: parent
+        onClicked: { }
+      }
+      Component.onCompleted: hermes.refreshSessions()
+      onVisibleChanged: if (visible) hermes.refreshSessions()
+    }
+  }
+
+  // Phase 8 — session selector dropdown: pinned/recent list; "new" entry first.
+  PanelWindow {
+    id: sessionsPopup
+    visible: root.sessionsOpen
+    color: "transparent"
+    focusable: true
+    WlrLayershell.namespace: "quickshell-sessions"
+    exclusiveZone: 0
+    width: 420
+    height: 360
+
+    onVisibleChanged: if (visible) Qt.callLater(sessionsPanel.forceActiveFocus)
+
+    Rectangle {
+      id: sessionsPanel
+      anchors.fill: parent
+      color: root.barBg
+      opacity: 0.93
+      radius: 0
+      Keys.onEscapePressed: root.sessionsOpen = false
+      onActiveFocusChanged: {
+        if (!activeFocus && root.sessionsOpen) Qt.callLater(forceActiveFocus)
+      }
+
+      Flickable {
+        anchors.fill: parent
+        contentWidth: width
+        contentHeight: sessCol.height + 32
+        clip: true
+
+        Column {
+          id: sessCol
+          x: 16
+          y: 16
+          width: sessionsPanel.width - 32
+          spacing: 4
+
+          Text {
+            text: "SESSIONS"
+            color: root.barGold
+            font.family: root.uiFont
+            font.pixelSize: 13
+            font.bold: true
+          }
+
+          Rectangle { width: parent.width; height: 1; color: root.barMuted; opacity: 0.4 }
+
+          // New-session entry: clears the selection; the next send creates one.
+          Rectangle {
+            width: parent.width
+            height: 26
+            color: hermes.currentSessionId === "" ? root.barAccent : "transparent"
+            Text {
+              anchors.verticalCenter: parent.verticalCenter
+              anchors.left: parent.left
+              anchors.leftMargin: 8
+              text: "+ new session"
+              color: hermes.currentSessionId === "" ? root.barBg : root.barFg
+              font.family: root.uiFont
+              font.pixelSize: 12
+            }
+            MouseArea {
+              anchors.fill: parent
+              cursorShape: Qt.PointingHandCursor
+              onClicked: {
+                hermes.newSession()
+                root.sessionsOpen = false
+              }
+            }
+          }
+
+          Repeater {
+            model: hermes.sessions
+            delegate: Rectangle {
+              width: sessCol.width
+              height: 26
+              color: hermes.currentSessionId === modelData.id ? root.barAccent : "transparent"
+              Text {
+                anchors.verticalCenter: parent.verticalCenter
+                anchors.left: parent.left
+                anchors.leftMargin: 8
+                width: parent.width - 60
+                text: (modelData.pinned ? "✦ " : "") + modelData.title
+                color: hermes.currentSessionId === modelData.id ? root.barBg : root.barFg
+                font.family: root.uiFont
+                font.pixelSize: 12
+                elide: Text.ElideRight
+              }
+              MouseArea {
+                anchors.fill: parent
+                cursorShape: Qt.PointingHandCursor
+                onClicked: {
+                  hermes.selectSession(modelData.id, modelData.title)
+                  root.sessionsOpen = false
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // Phase 8 — chat-log popup: the selected session's messages, scrollable.
+  // Anchored under the bar; ESC or the ≡ button closes.
+  PanelWindow {
+    id: chatPopup
+    visible: root.chatOpen
+    color: "transparent"
+    focusable: true
+    WlrLayershell.namespace: "quickshell-chat"
+    exclusiveZone: 0
+    width: 620
+    height: 480
+
+    onVisibleChanged: {
+      if (visible) {
+        hermes.loadMessages(hermes.currentSessionId)
+        Qt.callLater(chatPanel.forceActiveFocus)
+      }
+    }
+
+    Rectangle {
+      id: chatPanel
+      anchors.fill: parent
+      color: root.barBg
+      opacity: 0.93
+      radius: 0
+      Keys.onEscapePressed: root.chatOpen = false
+      onActiveFocusChanged: {
+        if (!activeFocus && root.chatOpen) Qt.callLater(forceActiveFocus)
+      }
+
+      Column {
+        x: 16
+        y: 16
+        width: parent.width - 32
+        spacing: 6
+
+        Text {
+          text: hermes.currentSessionTitle !== "" ? hermes.currentSessionTitle : "no session selected"
+          color: root.barGold
+          font.family: root.uiFont
+          font.pixelSize: 13
+          font.bold: true
+          elide: Text.ElideRight
+          width: parent.width
+        }
+
+        Rectangle { width: parent.width; height: 1; color: root.barMuted; opacity: 0.4 }
+      }
+
+      // Message log below the header, fills the rest, scrolls to bottom.
+      Flickable {
+        id: chatFlick
+        anchors {
+          top: parent.top
+          topMargin: 48
+          left: parent.left
+          right: parent.right
+          bottom: parent.bottom
+          bottomMargin: 16
+        }
+        anchors.leftMargin: 16
+        anchors.rightMargin: 16
+        contentWidth: width
+        contentHeight: chatCol.height
+        clip: true
+
+        Column {
+          id: chatCol
+          width: chatFlick.width
+          spacing: 10
+
+          Repeater {
+            model: hermes.messages
+            delegate: Column {
+              width: chatFlick.width
+              spacing: 2
+              Text {
+                text: model.role === "user" ? "you" : "hermes"
+                color: model.role === "user" ? root.barMuted : root.barAccent
+                font.family: root.uiFont
+                font.pixelSize: 10
+                font.bold: true
+              }
+              Text {
+                width: chatFlick.width
+                text: model.text
+                color: root.barFg
+                font.family: root.uiFont
+                font.pixelSize: 12
+                wrapMode: Text.WordWrap
+              }
+            }
+          }
+
+          Text {
+            visible: hermes.messages.length === 0
+            text: "No messages yet. Type in the bar to start."
+            color: root.barMuted
+            font.family: root.uiFont
+            font.pixelSize: 12
+          }
+        }
+
+        onContentHeightChanged: contentY = Math.max(0, contentHeight - height)
+      }
+    }
+  }
 
   // Mirror themeRevision locally so the handler fires where it's declared.
   onThemeRevisionChanged: {

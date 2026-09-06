@@ -10,15 +10,45 @@ let
   inherit (lib) mkIf mkMerge mkOption types;
   cfg = config.infernixos.desktop;
 
+  hermesDesktopBase = inputs.hermes-agent.packages.${pkgs.stdenv.hostPlatform.system}.desktop;
+
+  # The desktop client connects to the system `hermes serve` backend instead
+  # of spawning its own second backend. Mirrors the upstream HM module wiring
+  # (nix/homeManagerModules.nix desktopEnvironment/desktopRun):
+  #   HERMES_DESKTOP_REMOTE_URL   http://127.0.0.1:<port>  (--set, not secret)
+  #   HERMES_DESKTOP_REMOTE_TOKEN read at launch from the runtime token file
+  # The token is read at start time and never with --set: makeWrapper writes
+  # a --set value into the Nix store, which all users can read. The let runs
+  # OUTSIDE the HM module system, so NixOS-level options (infernixos.system.*)
+  # are not readable here — port and service assumption are fixed to the
+  # nixosModule defaults.
+  hermesDesktop = hermesDesktopBase.override {
+    extraEnv = {
+      HERMES_HOME = "/var/lib/hermes/.hermes";
+      HERMES_MANAGED = "nixos";
+      HERMES_DESKTOP_REMOTE_URL = "http://127.0.0.1:9119";
+    };
+    extraRun = [
+      ''
+        if [ -r /var/lib/hermes/.hermes/backend-session-token ]; then
+          HERMES_DESKTOP_REMOTE_TOKEN="$(tr -d '\r\n' < /var/lib/hermes/.hermes/backend-session-token)"
+          export HERMES_DESKTOP_REMOTE_TOKEN
+        else
+          echo "hermes-desktop: cannot read /var/lib/hermes/.hermes/backend-session-token." >&2
+          echo "hermes-desktop: starting with the application's own local backend." >&2
+        fi
+      ''
+    ];
+  };
+
   curatedApps = {
     pyre = pkgs.callPackage ../packages/pyre/package.nix { };
     fuzzel = pkgs.fuzzel;
     kitty = pkgs.kitty;
     quickshell = pkgs.quickshell;
     vesktop = pkgs.vesktop;
-    # Hermes desktop (Electron GUI) — mirrors dotfiles' install of
-    # inputs.hermes-agent.packages.<system>.desktop.
-    hermesDesktop = inputs.hermes-agent.packages.${pkgs.stdenv.hostPlatform.system}.desktop;
+    # Hermes desktop (Electron GUI), wrapped to use the system backend.
+    hermesDesktop = hermesDesktop;
   };
 
   installedApps = lib.concatLists (
@@ -33,7 +63,6 @@ in
 {
   imports = [
     inputs.zen-browser.homeModules.default
-    # infernixos dynamic theming engine (wallust) + the rice it drives.
     ./theming/wallust.nix
     ./theming/awww.nix
     ./theming/quickshell.nix
@@ -84,6 +113,30 @@ in
     };
 
     theming = {
+      wallust.enable = mkOption {
+        type = types.bool;
+        default = true;
+        description = "Enable the wallust dynamic theming engine and its templates.";
+      };
+
+      awww.enable = mkOption {
+        type = types.bool;
+        default = true;
+        description = "Enable the awww wallpaper daemon and its user services.";
+      };
+
+      quickshell.enable = mkOption {
+        type = types.bool;
+        default = true;
+        description = "Enable the QuickShell status bar and its launcher.";
+      };
+
+      niri.enable = mkOption {
+        type = types.bool;
+        default = true;
+        description = "Enable the niri window manager home-manager configuration.";
+      };
+
       wallpapersDir = mkOption {
         type = types.path;
         default = ../wallpapers;
@@ -105,7 +158,7 @@ in
 
       wallpaper.extraDirs = mkOption {
         type = types.listOf types.path;
-        default = [];
+        default = [ ];
         description = ''
           Additional wallpaper directories (jpg/png/webp) to include alongside
           the defaults. All dirs end up as read-only store paths.
@@ -151,7 +204,6 @@ in
 
       home.sessionVariables = {
         EDITOR = "nano";
-        HERMES_GATEWAY_MODE = "connect";
       };
     }
 

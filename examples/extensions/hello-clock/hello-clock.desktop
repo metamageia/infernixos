@@ -1,0 +1,6 @@
+[Desktop Entry]
+Type=Application
+Name=hello-clock
+Exec=hello-clock
+Terminal=false
+Categories=Utility;

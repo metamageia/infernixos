@@ -1,0 +1,3 @@
+name: infernixos-extensions
+version: 0.1.0
+description: Exposes infernixos extension/job inventory and safe actions (list, status, build checks) to Hermes.

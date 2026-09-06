@@ -29,8 +29,8 @@
     };
   };
 
-  outputs = inputs @ { flake-parts, ... }:
-    flake-parts.lib.mkFlake { inherit inputs; } {
+  outputs = inputsOuter @ { flake-parts, ... }:
+    flake-parts.lib.mkFlake { inputs = inputsOuter; } ({ inputs, ... }: {
       systems = [ "x86_64-linux" ];
 
       flake = {
@@ -43,37 +43,22 @@
 
         homeManagerModules.infernixos =
           args @ { config, lib, pkgs, ... }:
-          import ./homeManagerModules/desktop.nix (args // {
+          let
             inputs = {
-              inherit (inputs) zen-browser qml-niri hermes-agent;
+              inherit (inputsOuter) zen-browser qml-niri hermes-agent;
             };
+          in
+          import ./homeManagerModules/desktop.nix (args // {
+            inherit inputs;
+            _module.args = { inherit inputs; };
           });
 
-        nixosConfigurations.infernixos = inputs.nixpkgs.lib.nixosSystem {
-          system = "x86_64-linux";
-          modules = [
-            inputs.self.nixosModules.infernixos
-            inputs.home-manager.nixosModules.home-manager
-            {
-              home-manager.useGlobalPkgs = true;
-              home-manager.useUserPackages = true;
-              home-manager.users.infernixos.imports = [ inputs.self.homeManagerModules.infernixos ];
-              home-manager.users.infernixos.home.stateVersion = "25.05";
-              users.users.infernixos = {
-                isNormalUser = true;
-                extraGroups = [ "wheel" ];
-              };
-              # demo host: no hermes gateway package wired; consumers set it or disable
-              # ponytail: throwaway demo host; consumers provide real hardware config
-              fileSystems."/" = {
-                device = "/dev/disk/by-label/infernixos";
-                fsType = "ext4";
-              };
-              boot.loader.systemd-boot.enable = true;
-              system.stateVersion = "25.05";
-            }
-          ];
-        };
+        nixosModules.default = inputs.self.flake.nixosModules.infernixos;
+        homeManagerModules.default = inputs.self.flake.homeManagerModules.infernixos;
+
+        # Isolated VM integration test (real pinned Hermes service). Heavy:
+        # builds hermes-agent and boots a VM under KVM. Not part of checks.
+        nixosTests.infernixos = import ./tests/vm-test.nix;
       };
 
       perSystem = { self', pkgs, ... }: {
@@ -81,6 +66,21 @@
           pyre = pkgs.callPackage ./packages/pyre/package.nix { };
           default = pyre;
         };
+
+        checks = import ./tests/checks.nix {
+          inherit inputs pkgs;
+          self = inputs.self;
+        };
+
+        devShells.default = pkgs.mkShell {
+          packages = with pkgs; [
+            python3
+            uv
+            git
+            jq
+            nixpkgs-fmt
+          ];
+        };
       };
-    };
+    });
 }
