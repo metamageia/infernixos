@@ -131,6 +131,15 @@ in
     })
 
     (mkIf (config.infernixos.system.enable && config.infernixos.system.hermesEnable) {
+      # When the desktop is enabled, infernixos ships the wallust theming module
+      # (homeManagerModules/desktop.nix → theming/wallust.nix) which renders the
+      # Hermes skin YAML and deploys it to the gateway's skins dir. The gateway's
+      # skin watcher (tui_gateway/server.py _skin_sig) polls display.skin from
+      # config.yaml to decide which skins/<name>.yaml to watch — so the wallust
+      # skin file is invisible to the live-reload watcher unless display.skin is
+      # set to "wallust". Default it here when the desktop is enabled so the
+      # theming pipeline is self-contained; a consumer who disables wallust
+      # theming can override hermesSettings.display.skin to clear it.
       services.hermes-agent = {
         enable = true;
         user = cfg.hermesUser;
@@ -139,7 +148,11 @@ in
         createUser = cfg.hermesUser == "hermes";
         group = "users";
         addToSystemPackages = true;
-        settings = config.infernixos.system.hermesSettings;
+        settings = lib.recursiveUpdate
+          (lib.optionalAttrs config.infernixos.desktop.enable {
+            display.skin = "wallust";
+          })
+          config.infernixos.system.hermesSettings;
 
         # Authenticated loopback backend for the desktop client. The token is
         # a fixed runtime file so the desktop can reconnect across backend
@@ -164,6 +177,34 @@ in
       };
 
       systemd.services.hermes-agent.environment.HERMES_HOME_MODE = "2770";
+
+      # Upstream hardens the unit with NoNewPrivileges=true, which blocks
+      # sudo in any shell spawned by the agent (the login user runs `nh os
+      # switch` from the agent's terminal). Clear it when the gateway runs
+      # as a login user; the NOPASSWD rule scopes what the agent may run.
+      systemd.services.hermes-agent.serviceConfig.NoNewPrivileges =
+        lib.mkIf (cfg.hermesUser != "hermes") (lib.mkForce false);
+
+      # Upstream pins HOME to stateDir, which makes the agent believe its home
+      # is the state directory. HERMES_HOME is set separately, so state still
+      # resolves; but the agent's shell tool inherits HOME, so point it at the
+      # login user's home so paths like ~/.config resolve correctly.
+      systemd.services.hermes-agent.environment.HOME =
+        lib.mkIf (cfg.hermesUser != "hermes") (lib.mkForce
+          "/home/${cfg.hermesUser}");
+
+      # Upstream's ReadWritePaths covers stateDir + workingDirectory only.
+      # When the gateway runs as a login user, wallust-apply also writes to
+      # ~/.config (templates, last-wallpaper), so add the login user's home.
+      # Upstream already sets ProtectHome=false (read access to /home); this
+      # adds the write path. Keep the stateDir too so the gateway can still
+      # write its state tree.
+      systemd.services.hermes-agent.serviceConfig.ReadWritePaths =
+        lib.mkIf (cfg.hermesUser != "hermes") (lib.mkForce [
+          config.services.hermes-agent.stateDir
+          config.services.hermes-agent.workingDirectory
+          "/home/${cfg.hermesUser}"
+        ]);
 
       # Seed the backend session token exactly once, only if absent, so a
       # token that exists survives rebuilds and is never regenerated behind a
