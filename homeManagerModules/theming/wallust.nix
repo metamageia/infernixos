@@ -54,13 +54,41 @@
     # list, each a read-only store path). Scanned by the fuzzel menu below.
   wallpaperDirs = config.infernixos.desktop.theming.wallpaper.dirs;
 
-  # Hermes desktop skin dir (defaults to the gateway's skins dir).
+  # Hermes desktop skin dir. At NIX build time we only know an optional
+  # explicit override; the RUNTIME dir (wherever the running gateway actually
+  # lives) is resolved by the `hermes-skins-dir` helper below from the live
+  # hermes-desktop process env ($HERMES_HOME), then $HERMES_HOME, then the
+  # standard homes. This keeps the skin landing in the right dir on any host.
   hermesSkinsDir = config.infernixos.desktop.theming.hermesSkinsDir;
 
   # Zen profile chrome dir (on-disk hash varies per machine).
   zenProfileDir = config.infernixos.desktop.theming.zenProfileDir;
 
   wallustCfgDir = "${config.xdg.configHome}/wallust";
+
+  # Resolves the LIVE Hermes gateway skins dir at runtime, wherever the
+  # desktop is actually running from — no host-specific hardcoding. Order:
+  #   1. explicit Nix override (infernixos.desktop.theming.hermesSkinsDir)
+  #   2. $HERMES_HOME/skins of the running hermes-desktop process (read from
+  #      /proc/<pid>/environ — survives any custom install prefix)
+  #   3. $HERMES_HOME/skins of the calling session
+  #   4. /var/lib/hermes/.hermes/skins (gateway service default)
+  #   5. $HOME/.hermes/skins (per-user gateway)
+  hermes-skins-dir = pkgs.writeShellScriptBin "hermes-skins-dir" ''
+    #!${pkgs.bash}/bin/bash
+    set -euo pipefail
+    explicit="${hermesSkinsDir}"
+    if [ -n "$explicit" ]; then echo "$explicit"; exit 0; fi
+    pid=$("${pkgs.procps}/bin/pgrep" -f 'share/hermes-desktop' | "${pkgs.coreutils}/bin/head" -n1 || true)
+    if [ -n "$pid" ]; then
+      home=$("${pkgs.coreutils}/bin/tr" '\0' '\n' < "/proc/$pid/environ" 2>/dev/null \
+        | "${pkgs.gnugrep}/bin/grep" '^HERMES_HOME=' | "${pkgs.coreutils}/bin/cut" -d= -f2- || true)
+      if [ -n "''${home:-}" ]; then echo "$home/skins"; exit 0; fi
+    fi
+    if [ -n "''${HERMES_HOME:-}" ]; then echo "$HERMES_HOME/skins"; exit 0; fi
+    if [ -d /var/lib/hermes/.hermes/skins ]; then echo /var/lib/hermes/.hermes/skins; exit 0; fi
+    echo "$HOME/.hermes/skins"
+  '';
 
   # Applies a chosen wallpaper: wallust run + awww img + persist last-wallpaper.
   # Shared by the fuzzel menu (wallust-switch) and the QuickShell diamond picker
@@ -92,12 +120,15 @@
     # based — a same-name in-place recolor won't repaint. So bump the skin's
     # name field to the wallpaper basename: the gateway re-resolves, the
     # desktop sees a real name change, and repaints. No flash; display.skin
-    # stays `wallust`. wallust won't create the skins dir, so mkdir it.
-    mkdir -p "${hermesSkinsDir}"
+    # stays `wallust`. The skin is staged by wallust at
+    # <cfg>/hermes-skin.yaml; deploy it into the RUNNING gateway's skins dir
+    # (resolved at runtime — any host/install layout works).
+    skins_dir="$(${hermes-skins-dir}/bin/hermes-skins-dir)"
+    mkdir -p "$skins_dir"
     base="$(basename "$wp")"
     skin_name="$(echo "''${base%.*}" | tr '[:upper:] ' '[:lower:]-' | tr -cd 'a-z0-9-')"
     skin_name="''${skin_name:-wallust}"
-    sed -i "s/^name:.*/name: $skin_name/" "${hermesSkinsDir}/wallust.yaml"
+    sed "s/^name:.*/name: $skin_name/" "$CONFIG_DIR/hermes-skin.yaml" > "$skins_dir/wallust.yaml"
 
     # Set the live desktop background with a wipe transition (left-to-right).
     # awww-daemon persists from spawn-at-startup; we NEVER pkill it (killing it
@@ -146,6 +177,7 @@ in {
     libnotify # notify-send from the switcher
     wallust-apply # shared apply logic (fuzzel menu + QuickShell picker)
     wallust-switch # fuzzel launcher defined above
+    hermes-skins-dir # runtime resolver for the live gateway's skins dir
   ];
 
   # ---- wallust config + templates (wallust owns these files) ----
@@ -188,8 +220,10 @@ in {
     # NAME change (backend-sync.ts guard is name-based). wallust-apply bumps the
     # name field to the wallpaper basename after each render, so Mod+W live-
     # rethemes the desktop with no flash. display.skin is set to `wallust` in
-    # modules/hermes-agent. wallust owns the file.
-    hermes = { template = "hermes.tmpl", target = "${hermesSkinsDir}/wallust.yaml" }
+    # modules/hermes-agent. wallust owns the file. Target is a STAGING path in
+    # the wallust config dir; wallust-apply deploys it to the running gateway's
+    # skins dir via hermes-skins-dir (runtime resolution — host-agnostic).
+    hermes = { template = "hermes.tmpl", target = "${wallustCfgDir}/hermes-skin.yaml" }
     # Pyre (PySide6+QML file manager): renders a QtObject Theme.qml that theme.py
     # reads at launch. wallust owns the file; the ~/.config/pyre target dir is
     # mkdir'd in wallust-apply (wallust doesn't create parent dirs). Takes effect
@@ -876,7 +910,8 @@ in {
     };
     Service = {
       ExecStart = toString (pkgs.writeShellScript "hermes-desktop-skin-boot" ''
-        SKIN="${hermesSkinsDir}/wallust.yaml"
+        skins_dir="$(${hermes-skins-dir}/bin/hermes-skins-dir)"
+        SKIN="$skins_dir/wallust.yaml"
         last=""
         while true; do
           pid=$("${pkgs.procps}/bin/pgrep" -f 'share/hermes-desktop' | "${pkgs.coreutils}/bin/head" -n1 || true)
