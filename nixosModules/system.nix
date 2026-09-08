@@ -193,6 +193,31 @@ in
         lib.mkIf (cfg.hermesUser != "hermes") (lib.mkForce
           "/home/${cfg.hermesUser}");
 
+      # The gateway runs as a system service but spawns restart-safe cron/kanban
+      # workers via systemd-run --user --scope (process_registry.py fails closed
+      # without it). That needs the user session bus, which a system service
+      # does not get by default: without XDG_RUNTIME_DIR the user-bus probe
+      # fails and every cron dispatch errors with "systemd-run --user --scope
+      # is unavailable". Point it at the login user's runtime dir (linger is
+      # enabled for hermesUser, so /run/user/<uid> exists even logged out).
+      # ponytail: uid resolved via /etc/passwd at unit start, not eval time —
+      # NixOS assigns UIDs during activation, so config.users.users.<n>.uid
+      # is null at eval. ExecStartPre pins the value into a runtime env file.
+      systemd.services.hermes-agent = {
+        preStart = ''
+          uid=$(id -u ${cfg.hermesUser})
+          printf 'XDG_RUNTIME_DIR=/run/user/%s\nDBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/%s/bus\n' "$uid" "$uid" \
+            > /run/hermes-agent/userbus.env
+        '';
+        serviceConfig = {
+          # Optional (`-`): on the first start of a boot the file doesn't exist
+          # yet — preStart below writes it before ExecStart reads it.
+          EnvironmentFile = "-/run/hermes-agent/userbus.env";
+          # Owned by the service user, so preStart (non-root) can write into it.
+          RuntimeDirectory = "hermes-agent";
+        };
+      };
+
       # Upstream's ReadWritePaths covers stateDir + workingDirectory only.
       # When the gateway runs as a login user, wallust-apply also writes to
       # ~/.config (templates, last-wallpaper), so add the login user's home.
