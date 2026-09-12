@@ -54,7 +54,7 @@ let
   installedApps = lib.concatLists (
     lib.mapAttrsToList (name: defaultPackage:
       let
-        app = cfg.apps.${name};
+        app = cfg.apps.${name} or { enable = true; package = null; };
       in
       lib.optional (app.enable) (if app.package != null then app.package else defaultPackage)
     ) curatedApps
