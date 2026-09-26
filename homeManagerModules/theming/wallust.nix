@@ -286,7 +286,7 @@ in {
         }
     }
     overview {
-        backdrop-color "{{color8}}"
+        backdrop-color "{{ color5 | saturate(0.6) }}"
     }
   '';
 
