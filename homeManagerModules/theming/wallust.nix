@@ -1,64 +1,12 @@
-# Wallust dynamic theming — self-contained home-manager module.
-#
-# WHAT IT DOES
-#   - Installs `wallust` (v3.5.x) and `awww` (the animated Wayland wallpaper
-#     daemon; niri has NO native wallpaper-image support). awww gives smooth
-#     fade/wipe/grow transitions between wallpapers — no screen flash.
-#   - Ships ~/.config/wallust/wallust.toml + its `templates/` dir. wallust reads
-#     colors from a chosen wallpaper and renders templates for fuzzel,
-#     kitty, and niri.
-#   - Ships `wallust-switch`: a fuzzel-dmenu launcher that lists wallpapers from
-#     the repo wallpapers dir, applies the chosen one with `wallust run ...`, and
-#     sets it as the live desktop background with `awww img --transition-type fade`.
-#
-# VERIFIED EMPIRICALLY (nix shell nixpkgs#wallust, run against the warframe wp):
-#   CLI:  wallust run --config-dir <DIR> <IMAGE>      # image is a POSITIONAL arg
-#   Resolving placeholders: color0..color15, background, foreground, cursor, alpha
-#   (alpha defaults to 100).  `accent` and `wallpaper` DO NOT resolve (empty) — so
-#   templates use {{background}}/{{colorN}}, never {{accent}}/{{wallpaper}}.
-#   Templates live in a `templates/` subdir of the config dir; `target` is the
-#   absolute runtime path wallust writes.
-#
-# CONFIG-OWNERSHIP STRATEGY (wallust owns colors; HM keeps structure)
-#   - fuzzel: HM writes fuzzel.ini ONLY when settings != {} (it is empty here), so no
-#     conflict — wallust writes ~/.config/fuzzel/fuzzel.ini directly. HM still provides
-#     the fuzzel package + deps (jq/wl-clipboard/xdg-utils/coreutils) via modules/fuzzel.
-#   - kitty: HM writes kitty.conf ONLY when settings != {} (empty), so wallust
-#     writes ~/.config/kitty/kitty.conf directly (picked up on next launch).
-#   - niri: the nixpkgs home-manager `wayland.windowManager.niri` module writes
-#     ~/.config/niri/config.kdl from `settings` via the NAMED entry
-#     `xdg.configFile."niri/config.kdl"`. niri 26.04 DOES support `include`
-#     directives, so we append `include optional=true "colors.kdl"` (colors.kdl
-#     is wallust-generated from niri.tmpl) by using the module's own
-#     `extraConfig` hook — NOT a fresh xdg.configFile target (that collides).
-#     All binds/window-rules/gaps survive via `settings`; the include is added
-#     at the END of the generated config. Enabled (Phase 1b).
-#
-# NIRI RUNTIME NOTE (honest limitation)
-#   niri reads config.kdl only at session (compositor) start; there is no live reload
-#   IPC. So wallust regenerating niri/colors.kdl takes visual effect on niri after the
-#   NEXT login / niri restart — NOT immediately. The switcher therefore does NOT kill
-#   niri (that would end the session). fuzzel/kitty pick up their new files
-#   live (fuzzel/kitty on next launch). `include optional=true`
-#   keeps a missing colors.kdl (pre-first-run) from breaking niri startup.
-#
-# KEYBIND (recommended — add to modules/niri/home.nix `binds`, out of scope here)
-#   "Mod+W".action.spawn = "wallust-switch";
+
 {
   config,
   pkgs,
   lib,
   ...
 }: let
-    # Wallpapers source: infernixos defaults + consumer's own dirs (merged
-    # list, each a read-only store path). Scanned by the fuzzel menu below.
   wallpaperDirs = config.infernixos.desktop.theming.wallpaper.dirs;
 
-  # Hermes desktop skin dir. At NIX build time we only know an optional
-  # explicit override; the RUNTIME dir (wherever the running gateway actually
-  # lives) is resolved by the `hermes-skins-dir` helper below from the live
-  # hermes-desktop process env ($HERMES_HOME), then $HERMES_HOME, then the
-  # standard homes. This keeps the skin landing in the right dir on any host.
   hermesSkinsDir = config.infernixos.desktop.theming.hermesSkinsDir;
 
   # Zen profile chrome dir (on-disk hash varies per machine).
@@ -66,14 +14,6 @@
 
   wallustCfgDir = "${config.xdg.configHome}/wallust";
 
-  # Resolves the LIVE Hermes gateway skins dir at runtime, wherever the
-  # desktop is actually running from — no host-specific hardcoding. Order:
-  #   1. explicit Nix override (infernixos.desktop.theming.hermesSkinsDir)
-  #   2. $HERMES_HOME/skins of the running hermes-desktop process (read from
-  #      /proc/<pid>/environ — survives any custom install prefix)
-  #   3. $HERMES_HOME/skins of the calling session
-  #   4. /var/lib/hermes/.hermes/skins (gateway service default)
-  #   5. $HOME/.hermes/skins (per-user gateway)
   hermes-skins-dir = pkgs.writeShellScriptBin "hermes-skins-dir" ''
     #!${pkgs.bash}/bin/bash
     set -euo pipefail
@@ -90,9 +30,6 @@
     echo "$HOME/.hermes/skins"
   '';
 
-  # Applies a chosen wallpaper: wallust run + awww img + persist last-wallpaper.
-  # Shared by the fuzzel menu (wallust-switch) and the QuickShell diamond picker
-  # (Phase 6). Takes the wallpaper path as $1.
   wallust-apply = pkgs.writeShellScriptBin "wallust-apply" ''
     #!${pkgs.bash}/bin/bash
     set -euo pipefail
@@ -348,10 +285,8 @@ in {
             active-color "{{color5}}"
         }
     }
-    // Backdrop (gap between workspaces) matches the bar's active-workspace
-    // button fill (barAccent -> quickshell accent = {{color5}}).
     overview {
-        backdrop-color "{{color5}}"
+        backdrop-color "{{color4}}"
     }
   '';
 
@@ -368,16 +303,6 @@ in {
     }
   '';
 
-  # Discord theme template (via Vesktop). Maps the wallust palette onto
-  # Discord's CSS variables with a normal layered look. CORRECTED 08-30 (live
-  # discovery via the DOM dump): Discord's current "visual refresh" build
-  # draws its main surfaces from the --background-base-* / --background-
-  # surface-* token families, NOT the legacy --background-primary/secondary
-  # ones (those are now mostly dead). The first pass only set legacy tokens,
-  # so surfaces stayed near-black (Discord default). This sets BOTH families,
-  # plus --custom-theme-base-color which the build color-mixes every surface
-  # from. !important so Discord's own .theme-dark blocks can't beat it.
-  # wallust owns the file.
   home.file.".config/wallust/templates/discord.tmpl".text = ''
     /* wallust — recolors Discord (Vesktop) to match the current wallpaper. */
     .theme-dark {
