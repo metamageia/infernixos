@@ -1,5 +1,6 @@
 {
   config,
+  options,
   lib,
   pkgs,
   ...
@@ -82,6 +83,25 @@ in
       '';
     };
 
+    configRepo = mkOption {
+      type = types.nullOr types.str;
+      default = null;
+      example = "/home/alice/nixos";
+      description = ''
+        Absolute path to the user's NixOS flake repo. Hermes edits and commits
+        here, then requests a rebuild of a pinned commit that a logged-in wheel
+        user approves from the bar. Null disables agent rebuilds. The repo must
+        be group-writable by the users group so the hermes service can commit.
+      '';
+    };
+
+    configHost = mkOption {
+      type = types.str;
+      default = config.networking.hostName;
+      defaultText = lib.literalExpression "config.networking.hostName";
+      description = "nixosConfigurations attribute in configRepo to build.";
+    };
+
     hermesSettings = mkOption {
       type = types.attrsOf types.anything;
       default = { };
@@ -142,6 +162,17 @@ in
       # theming can override hermesSettings.display.skin to clear it.
       services.hermes-agent = {
         enable = true;
+        package = lib.mkDefault (options.services.hermes-agent.package.default.overrideAttrs (old: {
+          postInstall = (old.postInstall or "") + ''
+            skills=$out/share/hermes-agent/skills
+            orig=$(readlink -f $skills)
+            rm $skills
+            mkdir -p $skills
+            cp -rs $orig/. $skills/
+            chmod -R u+w $skills
+            cp -rs ${../skills}/. $skills/
+          '';
+        }));
         user = cfg.hermesUser;
         # Upstream's createUser declares a system user with isSystemUser; wrong
         # when hermesUser is a login user (collides with isNormalUser).
@@ -225,11 +256,7 @@ in
       # adds the write path. Keep the stateDir too so the gateway can still
       # write its state tree.
       systemd.services.hermes-agent.serviceConfig.ReadWritePaths =
-        lib.mkIf (cfg.hermesUser != "hermes") (lib.mkForce [
-          config.services.hermes-agent.stateDir
-          config.services.hermes-agent.workingDirectory
-          "/home/${cfg.hermesUser}"
-        ]);
+        lib.mkIf (cfg.hermesUser != "hermes") [ "/home/${cfg.hermesUser}" ];
 
       # Seed the backend session token exactly once, only if absent, so a
       # token that exists survives rebuilds and is never regenerated behind a
@@ -290,6 +317,54 @@ in
         {
           assertion = config.infernixos.system.hermesEnable -> config.infernixos.system.enable;
           message = "infernixos.system.hermesEnable requires infernixos.system.enable.";
+        }
+      ];
+    })
+
+    (mkIf (config.infernixos.system.enable && cfg.configRepo != null) {
+      environment.sessionVariables.INFERNIXOS_CONFIG_REPO = cfg.configRepo;
+      services.hermes-agent.environment.INFERNIXOS_CONFIG_REPO = cfg.configRepo;
+      programs.git = {
+        enable = true;
+        config.safe.directory = cfg.configRepo;
+      };
+      systemd.services.hermes-agent.serviceConfig.ReadWritePaths = [ cfg.configRepo ];
+
+      systemd.services."infernixos-rebuild@" = {
+        description = "infernixos approved rebuild of %i";
+        path = [ config.system.build.nixos-rebuild config.nix.package pkgs.git ];
+        serviceConfig = {
+          Type = "oneshot";
+          ExecStart = "${pkgs.writeShellScript "infernixos-rebuild" ''
+            set -eu
+            case "$1" in
+              *[!0-9a-f]*) echo "invalid rev" >&2; exit 2 ;;
+            esac
+            [ ''${#1} -eq 40 ] || { echo "invalid rev" >&2; exit 2; }
+            exec nixos-rebuild switch --flake "git+file://${cfg.configRepo}?rev=$1#${cfg.configHost}"
+          ''} %i";
+        };
+      };
+
+      security.polkit.enable = true;
+      security.polkit.extraConfig = ''
+        polkit.addRule(function(action, subject) {
+          if (action.id == "org.freedesktop.systemd1.manage-units"
+              && action.lookup("verb") == "start"
+              && action.lookup("unit").indexOf("infernixos-rebuild@") == 0
+              && subject.local && subject.active
+              && subject.isInGroup("wheel")${lib.optionalString (cfg.hermesUser == "hermes") ''
+
+              && subject.user != "hermes"''}) {
+            return polkit.Result.YES;
+          }
+        });
+      '';
+
+      assertions = [
+        {
+          assertion = lib.hasPrefix "/" cfg.configRepo;
+          message = "infernixos.system.configRepo must be an absolute path.";
         }
       ];
     })

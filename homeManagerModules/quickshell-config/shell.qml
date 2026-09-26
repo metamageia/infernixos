@@ -574,6 +574,56 @@ done | awk -F/ '{ print \$NF "\\t" \$0 }' | sort | cut -f2-`,
           verticalCenter: parent.verticalCenter
         }
 
+        Text {
+          id: rebuild
+          property string rev: ""
+          property string summary: ""
+          property string status: ""
+          property string repo: Quickshell.env("INFERNIXOS_CONFIG_REPO") || ""
+          visible: rev !== "" || status !== ""
+          color: root.barAccent
+          font.family: root.uiFont
+          font.pixelSize: 13
+          text: status !== "" ? status : "rebuild " + rev.slice(0, 7) + "? " + summary
+          Accessible.role: Accessible.Button
+          Accessible.name: "Hermes rebuild request: " + summary + ". Left click approve, middle click view diff, right click dismiss."
+          FileView {
+            id: rebuildRequest
+            path: "/var/lib/hermes/.hermes/rebuild-request"
+            watchChanges: true
+            onFileChanged: reload()
+            onLoaded: {
+              const lines = text().split("\n")
+              const rev = lines[0].trim()
+              rebuild.rev = /^[0-9a-f]{40}$/.test(rev) ? rev : ""
+              rebuild.summary = lines.slice(1).join(" ").trim()
+            }
+            onLoadFailed: { rebuild.rev = ""; rebuild.summary = "" }
+          }
+          Process {
+            id: rebuildProc
+            command: ["systemctl", "start", "infernixos-rebuild@" + rebuild.rev + ".service"]
+            onExited: (code) => { rebuild.status = code === 0 ? "rebuild ok" : "rebuild failed" }
+          }
+          MouseArea {
+            anchors.fill: parent
+            cursorShape: Qt.PointingHandCursor
+            acceptedButtons: Qt.LeftButton | Qt.MiddleButton | Qt.RightButton
+            onClicked: (mouse) => {
+              if (rebuild.status !== "") { rebuild.status = ""; return }
+              if (mouse.button === Qt.MiddleButton) {
+                Quickshell.execDetached(["kitty", "--hold", "git", "-C", rebuild.repo, "show", rebuild.rev])
+                return
+              }
+              if (mouse.button === Qt.LeftButton) {
+                rebuild.status = "rebuilding..."
+                rebuildProc.running = true
+              }
+              Quickshell.execDetached(["rm", "-f", rebuildRequest.path])
+            }
+          }
+        }
+
         // wifi via NetworkManager `nmcli` (no compositor dependency).
         // Click opens networkmanager_dmenu — the existing fuzzel/rofi picker
         // already in the package set (modules/networking). No new picker built.
