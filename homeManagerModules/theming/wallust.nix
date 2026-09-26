@@ -348,6 +348,9 @@ in {
             active-color "{{color5}}"
         }
     }
+    overview {
+        backdrop-color "{{color5}}"
+    }
   '';
 
   home.file.".config/wallust/templates/quickshell.tmpl".text = ''
