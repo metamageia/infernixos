@@ -85,12 +85,14 @@ in
 
     configRepo = mkOption {
       type = types.nullOr types.str;
-      default = null;
+      default = config.programs.nh.flake;
+      defaultText = lib.literalExpression "config.programs.nh.flake";
       example = "/home/alice/nixos";
       description = ''
         Absolute path to the user's NixOS flake repo. Hermes edits and commits
         here, then requests a rebuild of a pinned commit that a logged-in wheel
-        user approves from the bar. Null disables agent rebuilds. The repo must
+        user approves from the bar. Defaults to `programs.nh.flake`, so the
+        repo path is declared once. Null disables agent rebuilds. The repo must
         be group-writable by the users group so the hermes service can commit.
       '';
     };
@@ -143,11 +145,11 @@ in
         git
         gnupg
         jq
-        nh
         ripgrep
         tmux
         wget
       ] ++ config.infernixos.system.extraPackages;
+      programs.nh.enable = lib.mkDefault true;
     })
 
     (mkIf (config.infernixos.system.enable && config.infernixos.system.hermesEnable) {
