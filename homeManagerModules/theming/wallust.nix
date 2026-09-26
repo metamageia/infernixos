@@ -344,11 +344,12 @@ in {
   home.file.".config/wallust/templates/niri.tmpl".text = ''
     layout {
         background-color "{{background}}"
+        focus-ring {
+            active-color "{{color5}}"
+        }
     }
-    focus-ring {
-        active-color "{{color5}}"
-    }
-    color5 "{{color5}}"
+    // Backdrop (gap between workspaces) matches the bar's active-workspace
+    // button fill (barAccent -> quickshell accent = {{color5}}).
     overview {
         backdrop-color "{{color5}}"
     }
