@@ -286,7 +286,7 @@ in {
         }
     }
     overview {
-        backdrop-color "{{color4}}"
+        backdrop-color "{{color8}}"
     }
   '';
 
