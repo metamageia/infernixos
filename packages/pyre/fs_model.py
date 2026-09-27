@@ -287,7 +287,10 @@ class FileSystemModel(QAbstractListModel):
                     k = _natkey(e.name)
             except OSError:
                 st = None
-                k = 0
+                if self.sort_key in (SortKey.SIZE, SortKey.MODIFIED):
+                    k = -1
+                else:
+                    k = ()
             # is-dir straight from the cached mode, not a 2nd stat syscall
             isdir = statmod.S_ISDIR(st.st_mode) if st else e.is_dir()
             primary = (0 if isdir else 1) if self.dirs_first else 0
