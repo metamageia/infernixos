@@ -1,14 +1,3 @@
-# Isolated NixOS VM integration test for infernixos.
-#
-# Exercised via `nix build .#nixosTests.infernixos.driver` (flake output) —
-# never a public nixosConfigurations host. Boots the real pinned Hermes
-# gateway + backend (`hermes serve`, session-token auth) as the non-root
-# hermes user and verifies the authenticated loopback contract the desktop
-# client depends on.
-#
-# NOTE: the runtime extension-execution slice (packages/runtime, executable
-# `infernixos`) is owned by another worker and not yet exported; assertions
-# about it are marked TODO-runtime and must not be mocked.
 { inputs }:
 { pkgs, lib, ... }:
 
@@ -32,9 +21,6 @@
       linger = true;
     };
 
-    # TODO-runtime: packages/runtime/package.nix (executable `infernixos`)
-    # will be added here as environment.systemPackages once the runtime
-    # worker exports it; the activation/health assertions below depend on it.
   };
 
   testScript = ''

@@ -12,16 +12,6 @@ let
 
   hermesDesktopBase = inputs.hermes-agent.packages.${pkgs.stdenv.hostPlatform.system}.desktop;
 
-  # The desktop client connects to the system `hermes serve` backend instead
-  # of spawning its own second backend. Mirrors the upstream HM module wiring
-  # (nix/homeManagerModules.nix desktopEnvironment/desktopRun):
-  #   HERMES_DESKTOP_REMOTE_URL   http://127.0.0.1:<port>  (--set, not secret)
-  #   HERMES_DESKTOP_REMOTE_TOKEN read at launch from the runtime token file
-  # The token is read at start time and never with --set: makeWrapper writes
-  # a --set value into the Nix store, which all users can read. The let runs
-  # OUTSIDE the HM module system, so NixOS-level options (infernixos.system.*)
-  # are not readable here — port and service assumption are fixed to the
-  # nixosModule defaults.
   hermesDesktop = hermesDesktopBase.override {
     extraEnv = {
       HERMES_HOME = "/var/lib/hermes/.hermes";
@@ -47,7 +37,6 @@ let
     kitty = pkgs.kitty;
     quickshell = pkgs.quickshell;
     vesktop = pkgs.vesktop;
-    # Hermes desktop (Electron GUI), wrapped to use the system backend.
     hermesDesktop = hermesDesktop;
   };
 
@@ -147,9 +136,6 @@ in
         '';
       };
 
-      # Multi-dir wallpapers: distro defaults + user dirs. Consumers read
-      # wallpaperDirs (final merged list). enableDefaults=false excludes the
-      # infernixos-bundled set without touching user dirs.
       wallpaper.enableDefaults = mkOption {
         type = types.bool;
         default = true;
@@ -193,7 +179,6 @@ in
 
   config = mkMerge [
     {
-      # Expose flake inputs to imported theming submodules (quickshell needs qml-niri).
       _module.args = { inherit inputs; };
 
       infernixos.desktop.theming.wallpaper.dirs =
@@ -211,7 +196,6 @@ in
       programs.zen-browser = {
         enable = true;
         profiles.default = {
-          # Adopt the existing on-disk profile (regenerates profiles.ini).
           name = "Default Profile";
           path = cfg.theming.zenProfileDir;
           settings = {
@@ -220,9 +204,6 @@ in
             "zen.widget.linux.transparency" = true;
             "zen.urlbar.open-on-startup" = false;
           };
-          # sine.enable with EMPTY mods installs only the bootloader that
-          # scans chrome/sine-mods/mods.json; the wallust-reloader is a
-          # LOCAL mod registered there (see home.file below).
           sine = {
             enable = true;
             mods = [ ];
@@ -230,8 +211,6 @@ in
         };
       };
 
-      # Live-reload watcher for wallust-driven userChrome.css, as a local
-      # sine mod (matches ~/.dotfiles modules/zen).
       home.file."${config.xdg.configHome}/zen/${cfg.theming.zenProfileDir}/chrome/sine-mods/mods.json".text = ''
         {
           "wallust-reloader": {

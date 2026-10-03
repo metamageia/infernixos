@@ -22,7 +22,6 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
-    # QML plugin exposing niri IPC to QuickShell (used by the bar).
     qml-niri = {
       url = "github:imiric/qml-niri";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -56,8 +55,6 @@
         nixosModules.default = inputs.self.flake.nixosModules.infernixos;
         homeManagerModules.default = inputs.self.flake.homeManagerModules.infernixos;
 
-        # Isolated VM integration test (real pinned Hermes service). Heavy:
-        # builds hermes-agent and boots a VM under KVM. Not part of checks.
         nixosTests.infernixos = import ./tests/vm-test.nix;
       };
 

@@ -1,5 +1,4 @@
-This is the distro production repo for InfernixOS, an opinionated config/distro built on NixOS and around Hermes Agent. This is not a personal config, do not include personal information, user config, host hardware config, etc in this repo.
-
-Do not leave comments in code.
-
-Only maintain two OUTPUT modules (you may have multiple modules in-repo where compartmentalizing functionality is useful and appropriate): The nixosModule and the homeManagerModule. If it's core HermetixOS functionality, it goes in the nixosModule. If it's desktop/user/rice functionality like DE/WM/Aesthetic, it goes in HM module.
+- InfernixOS: Opinionated agentic NixOS Distro built around Hermes Agent, quickshell plugin development, and dynamic retheming. 
+- Do not create comments in code. Leave comments unmodified. 
+- Two output modules in flake.nix. Core system functionality goes in nixosModules, anything aesthetic or user-specific goes in homeManagerModules.
+- Packages: Pyre is a dynamically themed file manager included in infernixos.

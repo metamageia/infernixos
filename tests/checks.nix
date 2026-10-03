@@ -1,9 +1,3 @@
-# Real module checks for infernixos.
-#
-# Evaluated by flake.nix perSystem checks. Each check evaluates the actual
-# exported modules the way a consumer would (nixosSystem for NixOS,
-# homeManagerConfiguration for HM). A wrong type, a missing option, a broken
-# assertion or an insecure wiring fails the check instead of a rebuild.
 { inputs, pkgs, self }:
 
 let
