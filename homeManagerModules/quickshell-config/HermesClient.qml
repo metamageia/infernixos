@@ -2,39 +2,27 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 
-// Hermes gateway API-server client for the quickshell bar.
-// Talks to the OpenAI-compatible API server (127.0.0.1:8642 by default):
-//   GET  /health/detailed            - active agent count (agents pill)
-//   GET  /api/sessions               - pinned/recent session list
-//   GET  /api/sessions/{id}/messages - chat log for the popup
-//   POST /api/sessions/{id}/chat     - send one message, get the reply
-// Bearer key read at startup from the seeded runtime key file.
 QtObject {
   id: client
 
-  // Gateway endpoint + key path injected by the quickshell-bar wrapper (same
-  // runtime-token mechanism hermes desktop uses).
   readonly property string baseUrl: Quickshell.env("QUICKSHELL_HERMES_API_URL") || ""
   readonly property string keyPath: Quickshell.env("QUICKSHELL_HERMES_API_KEY_PATH") || ""
   property string apiKey: ""
-  // true once /health/detailed answered - drives the "gateway down" state.
+  
   property bool connected: false
-  // Gateway-reported active agent count (agents pill).
+  
   property int activeAgents: 0
-  // Session list for the HUD dropdown: [{id, title, pinned, updatedAt}]
+  
   property var sessions: []
-  // Currently selected session id ("" = none; next message creates one).
+  
   property string currentSessionId: ""
   property string currentSessionTitle: ""
-  // Chat log of the selected session: [{role, text}]
+  
   property var messages: []
   property bool busy: false
-  // True when the next send should attach workspace context (critical toggle).
+  
   property bool captureContext: false
 
-  // Optional callbacks set by the shell: a context string for the critical
-  // capture toggle (focused-window metadata) and an async screenshot capture
-  // (onDone(path)) used to attach the image to the message.
   property var contextProvider: null
   property var captureProvider: null
 
@@ -42,8 +30,6 @@ QtObject {
   signal sessionsUpdated()
   signal messagesUpdated()
 
-  // QtObject has no default child property, so FileView/Timer children are
-  // created dynamically at startup.
   Component.onCompleted: {
     const fv = keyViewComp.createObject(client)
     fv.path = client.keyPath
@@ -107,15 +93,10 @@ QtObject {
     }
   }
 
-  // Poll gateway + refresh sessions for the agents pill. Light: every 5s.
-  // activeAgents = open (not ended / not archived) sessions across the
-  // gateway — /health/detailed.active_agents only counts API-server runs, so
-  // it reads 0 while desktop/cli sessions are live. Count sessions instead.
   function pollHealth() {
     client.refreshSessions()
   }
 
-  // Refresh the session list for the HUD dropdown.
   function refreshSessions() {
     _jsonXhr("GET", "/api/sessions?limit=50", null, function (status, data) {
       if (status !== 200 || !data) {
@@ -143,7 +124,6 @@ QtObject {
     })
   }
 
-  // Load the selected session's chat log.
   function loadMessages(sessionId) {
     if (!sessionId) { client.messages = []; client.messagesUpdated(); return }
     _jsonXhr("GET", "/api/sessions/" + encodeURIComponent(sessionId) + "/messages", null, function (status, data) {
@@ -172,9 +152,6 @@ QtObject {
     client.selectSession("", "")
   }
 
-  // Send the HUD input. With no selected session, creates one first.
-  // Workspace context: when captureContext is on, grabs the focused-window
-  // metadata (niri) and attaches it ahead of the message text.
   function send(text) {
     if (client.busy || !text.trim()) return
     client.busy = true

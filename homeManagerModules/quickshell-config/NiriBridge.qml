@@ -2,15 +2,11 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 
-// Screen-context bridge for the bar's critical toggle. Captures focused-window
-// metadata via niri IPC; the screenshot is taken with `niri msg action
-// screenshot-window` (lands in clipboard) and read back through wl-paste.
 QtObject {
   id: bridge
 
   property bool capturing: false
 
-  // Focused-window context line, or "" when nothing is focused / niri is down.
   function contextLine() {
     return _focusedTitle !== "" || _focusedApp !== ""
       ? "Focused window: '" + _focusedTitle + "' (app: " + _focusedApp + ")"
@@ -40,16 +36,13 @@ QtObject {
 
   property var _focusProc: null
 
-  // Refresh focus info; cheap enough to run on toggle-on and before each send.
   function refreshFocus() {
     _focusProc.running = true
   }
 
-  // Capture the focused window screenshot to a temp file and call onDone(path).
-  // Uses niri's screenshot action (clipboard) + wl-paste to read it back.
   function captureWindow(onDone) {
     _captureProc.running = true
-    // wl-paste consumes the clipboard after niri wrote it; chain via a poll.
+    
     _pasteTimer.repeat = true
     _pasteTimer.restart()
     pasteDone = onDone

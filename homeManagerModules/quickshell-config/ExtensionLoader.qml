@@ -1,10 +1,5 @@
-// infernixos extension loader.
-// Reads the runtime registry (extensions/registry.json written by
-// `infernixos ext install`) and instantiates each enabled widget extension
-// inside the SAME QuickShell process/ShellRoot, so extensions share the
-// palette. An extension whose QML fails to load fails independently: the
-// Loader logs and skips it without taking the bar down. Registry changes are
-// watched and applied live. Disabled extensions are skipped.
+
+
 import QtQuick
 import Quickshell
 import Quickshell.Io
@@ -58,8 +53,6 @@ QtObject {
 
   Component.onCompleted: registryView = registryViewComp.createObject(loader)
 
-  // One Loader per enabled widget extension. Each fails independently:
-  // a broken QML sets Loader status Error for that loader only.
   property list<Loader> loaders: widgets.map(function (w) {
     return loaderComponent.createObject(null, { widget: w })
   })
