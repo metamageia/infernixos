@@ -1,6 +1,8 @@
-{ inputs, pkgs, self }:
-
-let
+{
+  inputs,
+  pkgs,
+  self,
+}: let
   lib = inputs.nixpkgs.lib;
 
   baseNixosModules = {
@@ -41,22 +43,23 @@ let
     };
 
   evals = {
-    nixos-headless = evalNixos { };
+    nixos-headless = evalNixos {};
     nixos-desktop = evalNixos {
       infernixos.desktop.enable = true;
-      infernixos.desktop.hermesClientUsers = [ "consumer" ];
+      infernixos.desktop.hermesClientUsers = ["consumer"];
     };
     nixos-apps-disabled = evalNixos {
       infernixos.system.hermesEnable = false;
-      infernixos.system.extraPackages = [ pkgs.hello ];
+      infernixos.system.extraPackages = [pkgs.hello];
     };
-    hm-desktop-defaults = evalHome { };
+    hm-desktop-defaults = evalHome {};
     hm-apps-disabled = evalHome {
       infernixos.desktop = {
         zen.enable = false;
-        apps = lib.genAttrs
-          [ "pyre" "fuzzel" "kitty" "quickshell" "vesktop" "hermesDesktop" ]
-          (_: { enable = false; });
+        apps =
+          lib.genAttrs
+          ["pyre" "fuzzel" "kitty" "quickshell" "vesktop" "hermesDesktop"]
+          (_: {enable = false;});
         theming = {
           wallust.enable = false;
           awww.enable = false;
@@ -71,7 +74,8 @@ let
   desktopCfg = evals.nixos-desktop.config;
 
   assertBackendToken =
-    headlessCfg.services.hermes-agent.backend == {
+    headlessCfg.services.hermes-agent.backend
+    == {
       mode = "serve";
       host = "127.0.0.1";
       port = 9119;
@@ -81,9 +85,11 @@ let
   assertNoSecretInStore =
     !(lib.hasPrefix builtins.storeDir headlessCfg.services.hermes-agent.backend.sessionTokenFile);
 
-  assertSandbox =
-    let sc = headlessCfg.systemd.services.hermes-agent.serviceConfig;
-    in sc.NoNewPrivileges == true
+  assertSandbox = let
+    sc = headlessCfg.systemd.services.hermes-agent.serviceConfig;
+  in
+    sc.NoNewPrivileges
+    == true
     && sc.ProtectSystem == "strict"
     && sc.User == "hermes"
     && sc.User != "root";
@@ -91,13 +97,13 @@ let
   assertTokenSeededOnce =
     lib.hasInfix "if [ ! -s" headlessCfg.systemd.services.hermes-backend.preStart;
 
-  assertDesktopUsesService =
-    let pkg = builtins.elem desktopCfg.environment.systemPackages [];
-    in desktopCfg.services.hermes-agent.backend.sessionTokenFile != null
+  assertDesktopUsesService = let
+    pkg = builtins.elem desktopCfg.environment.systemPackages [];
+  in
+    desktopCfg.services.hermes-agent.backend.sessionTokenFile
+    != null
     && desktopCfg.users.users ? consumer;
-
-in
-{
+in {
   nixos-headless = evals.nixos-headless.config.system.build.toplevel.drvPath != "";
   nixos-desktop = evals.nixos-desktop.config.system.build.toplevel.drvPath != "";
   nixos-apps-disabled = evals.nixos-apps-disabled.config.system.build.toplevel.drvPath != "";

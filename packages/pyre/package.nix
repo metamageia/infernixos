@@ -16,8 +16,8 @@ in
     dontBuild = true;
     dontConfigure = true;
     dontWrapQtApps = true;
-    nativeBuildInputs = [ kdePackages.breeze-icons hicolor-icon-theme ];
-    buildInputs = [ qt6.qtbase qt6.qtsvg ];
+    nativeBuildInputs = [kdePackages.breeze-icons hicolor-icon-theme];
+    buildInputs = [qt6.qtbase qt6.qtsvg];
     installPhase = ''
       mkdir -p $out/libexec/pyre
       cp *.py $out/libexec/pyre/

@@ -28,9 +28,9 @@
     };
   };
 
-  outputs = inputsOuter @ { flake-parts, ... }:
-    flake-parts.lib.mkFlake { inputs = inputsOuter; } ({ inputs, ... }: {
-      systems = [ "x86_64-linux" ];
+  outputs = inputsOuter @ {flake-parts, ...}:
+    flake-parts.lib.mkFlake {inputs = inputsOuter;} ({inputs, ...}: {
+      systems = ["x86_64-linux"];
 
       flake = {
         nixosModules.infernixos = {
@@ -40,17 +40,21 @@
           ];
         };
 
-        homeManagerModules.infernixos =
-          args @ { config, lib, pkgs, ... }:
-          let
-            inputs = {
-              inherit (inputsOuter) zen-browser qml-niri hermes-agent;
-            };
-          in
-          import ./homeManagerModules/desktop.nix (args // {
-            inherit inputs;
-            _module.args = { inherit inputs; };
-          });
+        homeManagerModules.infernixos = args @ {
+          config,
+          lib,
+          pkgs,
+          ...
+        }: let
+          inputs = {
+            inherit (inputsOuter) zen-browser qml-niri hermes-agent;
+          };
+        in
+          import ./homeManagerModules/desktop.nix (args
+            // {
+              inherit inputs;
+              _module.args = {inherit inputs;};
+            });
 
         nixosModules.default = inputs.self.flake.nixosModules.infernixos;
         homeManagerModules.default = inputs.self.flake.homeManagerModules.infernixos;
@@ -58,9 +62,13 @@
         nixosTests.infernixos = import ./tests/vm-test.nix;
       };
 
-      perSystem = { self', pkgs, ... }: {
+      perSystem = {
+        self',
+        pkgs,
+        ...
+      }: {
         packages = rec {
-          pyre = pkgs.callPackage ./packages/pyre/package.nix { };
+          pyre = pkgs.callPackage ./packages/pyre/package.nix {};
           default = pyre;
         };
 

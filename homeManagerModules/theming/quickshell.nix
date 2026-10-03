@@ -1,11 +1,10 @@
-{ config
-, pkgs
-, lib
-, inputs
-, ...
-}:
-
-let
+{
+  config,
+  pkgs,
+  lib,
+  inputs,
+  ...
+}: let
   barSrc = ../quickshell-config;
 
   palettePath = "${config.xdg.configHome}/quickshell/wallust-palette.json";
@@ -68,9 +67,7 @@ let
     export QUICKSHELL_HERMES_API_KEY_PATH="/var/lib/hermes/.hermes/api-server-key"
     exec ${pkgs.quickshell}/bin/quickshell --config "${barConfig}"
   '';
-in
-{
-
+in {
   home.packages = with pkgs; [
     quickshell
     qsWrapper
@@ -81,8 +78,7 @@ in
 
   home.file.".config/quickshell/bar".source = barConfig;
 
-
-  home.activation.createPickerState = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+  home.activation.createPickerState = lib.hm.dag.entryAfter ["writeBoundary"] ''
     mkdir -p "$HOME/.config/quickshell"
     echo "closed" > "$HOME/.config/quickshell/picker-state"
     echo "closed" > "$HOME/.config/quickshell/hotkeys-state"

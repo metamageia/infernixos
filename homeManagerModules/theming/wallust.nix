@@ -1,4 +1,3 @@
-
 {
   config,
   pkgs,
@@ -79,11 +78,11 @@
   '';
 in {
   home.packages = with pkgs; [
-    wallust 
-    libnotify 
-    wallust-apply 
-    wallust-switch 
-    hermes-skins-dir 
+    wallust
+    libnotify
+    wallust-apply
+    wallust-switch
+    hermes-skins-dir
   ];
 
   home.file.".config/wallust/wallust.toml".text = ''
@@ -517,7 +516,6 @@ in {
   wayland.windowManager.niri.extraConfig = lib.mkAfter ''
     include optional=true "colors.kdl"
   '';
-
 
   systemd.user.services.hermes-desktop-skin-boot = {
     Unit = {

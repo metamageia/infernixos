@@ -4,17 +4,14 @@
   lib,
   pkgs,
   ...
-}:
-
-let
+}: let
   inherit (lib) mkIf mkMerge mkOption types;
   cfg = config.infernixos.system;
 
   tokenPath = "${config.services.hermes-agent.stateDir}/.hermes/backend-session-token";
   apiKeyPath = "${config.services.hermes-agent.stateDir}/.hermes/api-server-key";
   apiKeyEnvPath = "${config.services.hermes-agent.stateDir}/.hermes/api-server-key.env";
-in
-{
+in {
   options.infernixos.system = with lib; {
     enable = mkOption {
       type = types.bool;
@@ -28,7 +25,7 @@ in
 
     extraPackages = mkOption {
       type = types.listOf types.package;
-      default = [ ];
+      default = [];
       description = ''
         Additional non-GUI system packages to install alongside the curated core
         essentials when `infernixos.system.enable` is true. GUI applications live
@@ -99,7 +96,7 @@ in
 
     hermesSettings = mkOption {
       type = types.attrsOf types.anything;
-      default = { };
+      default = {};
       description = ''
         Hermes Agent settings, deep-merged into `services.hermes-agent.settings`
         (rendered as config.yaml). Consumers must set the model provider here.
@@ -121,7 +118,7 @@ in
 
     hermesClientUsers = mkOption {
       type = types.listOf types.str;
-      default = [ ];
+      default = [];
       description = ''
         Login accounts that use the Hermes desktop client. They join the
         `hermes` service group so their clients can read the gateway state in
@@ -132,16 +129,18 @@ in
 
   config = mkMerge [
     (mkIf config.infernixos.system.enable {
-      environment.systemPackages = with pkgs; [
-        curl
-        fd
-        git
-        gnupg
-        jq
-        ripgrep
-        tmux
-        wget
-      ] ++ config.infernixos.system.extraPackages;
+      environment.systemPackages = with pkgs;
+        [
+          curl
+          fd
+          git
+          gnupg
+          jq
+          ripgrep
+          tmux
+          wget
+        ]
+        ++ config.infernixos.system.extraPackages;
       programs.nh.enable = lib.mkDefault true;
     })
 
@@ -149,21 +148,24 @@ in
       services.hermes-agent = {
         enable = true;
         package = lib.mkDefault (options.services.hermes-agent.package.default.overrideAttrs (old: {
-          postInstall = (old.postInstall or "") + ''
-            skills=$out/share/hermes-agent/skills
-            orig=$(readlink -f $skills)
-            rm $skills
-            mkdir -p $skills
-            cp -rs $orig/. $skills/
-            chmod -R u+w $skills
-            cp -rs ${../skills}/. $skills/
-          '';
+          postInstall =
+            (old.postInstall or "")
+            + ''
+              skills=$out/share/hermes-agent/skills
+              orig=$(readlink -f $skills)
+              rm $skills
+              mkdir -p $skills
+              cp -rs $orig/. $skills/
+              chmod -R u+w $skills
+              cp -rs ${../skills}/. $skills/
+            '';
         }));
         user = cfg.hermesUser;
         createUser = cfg.hermesUser == "hermes";
         group = "users";
         addToSystemPackages = true;
-        settings = lib.recursiveUpdate
+        settings =
+          lib.recursiveUpdate
           (lib.optionalAttrs config.infernixos.desktop.enable {
             display.skin = "wallust";
           })
@@ -178,7 +180,7 @@ in
 
         environment.API_SERVER_ENABLED = mkIf config.infernixos.system.hermesEnable "true";
         environment.API_SERVER_PORT = toString config.infernixos.system.hermesApiServerPort;
-        environmentFiles = [ apiKeyEnvPath ];
+        environmentFiles = [apiKeyEnvPath];
       };
 
       systemd.services.hermes-agent.environment.HERMES_HOME_MODE = "2770";
@@ -203,7 +205,7 @@ in
       };
 
       systemd.services.hermes-agent.serviceConfig.ReadWritePaths =
-        lib.mkIf (cfg.hermesUser != "hermes") [ "/home/${cfg.hermesUser}" ];
+        lib.mkIf (cfg.hermesUser != "hermes") ["/home/${cfg.hermesUser}"];
 
       systemd.services.hermes-backend = {
         preStart = ''
@@ -218,7 +220,7 @@ in
       };
 
       system.activationScripts."hermes-api-server-key" = {
-        deps = [ "users" ];
+        deps = ["users"];
         text = ''
           mkdir -p "$(dirname "${apiKeyPath}")"
           if [ ! -s "${apiKeyPath}" ]; then
@@ -231,7 +233,7 @@ in
         '';
       };
 
-      system.activationScripts."hermes-agent-setup".deps = [ "hermes-api-server-key" ];
+      system.activationScripts."hermes-agent-setup".deps = ["hermes-api-server-key"];
 
       environment.pathsToLink = [
         "/share/applications"
@@ -241,7 +243,7 @@ in
 
       assertions = [
         {
-          assertion = config.infernixos.desktop.enable -> config.infernixos.desktop.hermesClientUsers != [ ];
+          assertion = config.infernixos.desktop.enable -> config.infernixos.desktop.hermesClientUsers != [];
           message = "infernixos.desktop.enable requires infernixos.desktop.hermesClientUsers so desktop users can use the Hermes client.";
         }
         {
@@ -258,11 +260,11 @@ in
         enable = true;
         config.safe.directory = cfg.configRepo;
       };
-      systemd.services.hermes-agent.serviceConfig.ReadWritePaths = [ cfg.configRepo ];
+      systemd.services.hermes-agent.serviceConfig.ReadWritePaths = [cfg.configRepo];
 
       systemd.services."infernixos-rebuild@" = {
         description = "infernixos approved rebuild of %i";
-        path = [ config.system.build.nixos-rebuild config.nix.package pkgs.git ];
+        path = [config.system.build.nixos-rebuild config.nix.package pkgs.git];
         serviceConfig = {
           Type = "oneshot";
           ExecStart = "${pkgs.writeShellScript "infernixos-rebuild" ''
@@ -285,7 +287,7 @@ in
               && subject.local && subject.active
               && subject.isInGroup("wheel")${lib.optionalString (cfg.hermesUser == "hermes") ''
 
-              && subject.user != "hermes"''}) {
+          && subject.user != "hermes"''}) {
             return polkit.Result.YES;
           }
         });
@@ -300,13 +302,14 @@ in
     })
 
     (mkIf config.infernixos.desktop.enable {
-      programs.regreet.enable = true;
+      services.displayManager.regreet.enable = true;
       programs.niri.enable = true;
 
       users.users = lib.listToAttrs (map
-        (name: lib.nameValuePair name {
-          extraGroups = lib.optionals (config.infernixos.system.hermesUser != name) [ "hermes" ];
-        })
+        (name:
+          lib.nameValuePair name {
+            extraGroups = lib.optionals (config.infernixos.system.hermesUser != name) ["hermes"];
+          })
         config.infernixos.desktop.hermesClientUsers);
     })
   ];

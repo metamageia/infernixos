@@ -4,9 +4,7 @@
   pkgs,
   inputs,
   ...
-}:
-
-let
+}: let
   inherit (lib) mkIf mkMerge mkOption types;
   cfg = config.infernixos.desktop;
 
@@ -32,7 +30,7 @@ let
   };
 
   curatedApps = {
-    pyre = pkgs.callPackage ../packages/pyre/package.nix { };
+    pyre = pkgs.callPackage ../packages/pyre/package.nix {};
     fuzzel = pkgs.fuzzel;
     kitty = pkgs.kitty;
     quickshell = pkgs.quickshell;
@@ -41,15 +39,25 @@ let
   };
 
   installedApps = lib.concatLists (
-    lib.mapAttrsToList (name: defaultPackage:
-      let
-        app = cfg.apps.${name} or { enable = true; package = null; };
+    lib.mapAttrsToList (
+      name: defaultPackage: let
+        app =
+          cfg.apps.${
+            name
+          } or {
+            enable = true;
+            package = null;
+          };
       in
-      lib.optional (app.enable) (if app.package != null then app.package else defaultPackage)
-    ) curatedApps
+        lib.optional (app.enable) (
+          if app.package != null
+          then app.package
+          else defaultPackage
+        )
+    )
+    curatedApps
   );
-in
-{
+in {
   imports = [
     inputs.zen-browser.homeModules.default
     ./theming/wallust.nix
@@ -144,7 +152,7 @@ in
 
       wallpaper.extraDirs = mkOption {
         type = types.listOf types.path;
-        default = [ ];
+        default = [];
         description = ''
           Additional wallpaper directories (jpg/png/webp) to include alongside
           the defaults. All dirs end up as read-only store paths.
@@ -179,10 +187,10 @@ in
 
   config = mkMerge [
     {
-      _module.args = { inherit inputs; };
+      _module.args = {inherit inputs;};
 
       infernixos.desktop.theming.wallpaper.dirs =
-        (lib.optionals cfg.theming.wallpaper.enableDefaults [ cfg.theming.wallpapersDir ])
+        (lib.optionals cfg.theming.wallpaper.enableDefaults [cfg.theming.wallpapersDir])
         ++ cfg.theming.wallpaper.extraDirs;
 
       home.packages = installedApps;
@@ -206,7 +214,7 @@ in
           };
           sine = {
             enable = true;
-            mods = [ ];
+            mods = [];
           };
         };
       };

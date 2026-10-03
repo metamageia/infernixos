@@ -1,12 +1,13 @@
-{ inputs }:
-{ pkgs, lib, ... }:
-
-{
+{inputs}: {
+  pkgs,
+  lib,
+  ...
+}: {
   name = "infernixos-hermes-backend";
   hostPkgs = pkgs;
 
-  nodes.machine = { ... }: {
-    imports = [ inputs.self.nixosModules.infernixos ];
+  nodes.machine = {...}: {
+    imports = [inputs.self.nixosModules.infernixos];
 
     virtualisation.graphics = false;
 
@@ -14,13 +15,12 @@
     infernixos.system.hermesEnable = true;
     infernixos.system.hermesBackendPort = 9119;
     infernixos.desktop.enable = true;
-    infernixos.desktop.hermesClientUsers = [ "consumer" ];
+    infernixos.desktop.hermesClientUsers = ["consumer"];
 
     users.users.consumer = {
       isNormalUser = true;
       linger = true;
     };
-
   };
 
   testScript = ''
