@@ -70,10 +70,7 @@ let
   '';
 in
 {
-  # ---- packages: quickshell, the qml-niri plugin availability, audio/network tools ----
-  # quickshell itself comes from nixpkgs; qml-niri plugin is pulled via the wrapper's
-  # QML2_IMPORT_PATH (so it doesn't need to be a top-level package, but we add it to
-  # the env so it's inspectable).
+
   home.packages = with pkgs; [
     quickshell
     qsWrapper
@@ -82,15 +79,9 @@ in
     inputs.qml-niri.packages.${pkgs.stdenv.hostPlatform.system}.default
   ];
 
-  # ---- ship the bar QML into ~/.config/quickshell/bar so it's user-editable & live ----
-  # (Phase 2b can patch these files at runtime without a rebuild, matching how
-  #  wallust owns waybar/fuzzel/kitty files.)
   home.file.".config/quickshell/bar".source = barConfig;
 
-  # Seed the picker state file to "closed" so the bar starts with the picker
-  # hidden. MUST be a real writable file, NOT a home-manager store symlink —
-  # home.file with `.text` creates a read-only /nix/store symlink, so the
-  # wallpaper-picker-toggle script's `echo open >` would fail with "Read-only
+
   home.activation.createPickerState = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
     mkdir -p "$HOME/.config/quickshell"
     echo "closed" > "$HOME/.config/quickshell/picker-state"

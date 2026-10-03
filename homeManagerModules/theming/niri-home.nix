@@ -184,10 +184,6 @@
         }
       }
 
-      // Phase 7: the keybind/hotkey popup's shadow, same tight drop shadow as
-      // the bar/fuzzel (namespace quickshell-hotkeys, set in shell.qml). A window
-      // shadow draws around the window box =the popup panel fits tight to content.
-
       layer-rule {
         match namespace="^quickshell-hotkeys$"
         shadow {
@@ -199,10 +195,6 @@
         }
       }
 
-      // Phase 6: the wallpaper picker's shadow is per-DIAMOND (in QML,
-      // WallpaperHive DropShadow), NOT a window-level layer-rule — a window
-      // shadow would cast a big box around the transparent picker surface
-      // (Gage, 08-29). Only the bar keeps its layer-rule shadow.
     '';
   };
 }

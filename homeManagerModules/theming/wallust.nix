@@ -74,8 +74,6 @@
     ${pkgs.libnotify}/bin/notify-send "wallust" "Themed from $(basename "$wp")" 2>/dev/null || true
   '';
 
-  # fuzzel-dmenu launcher: pick wallpaper -> wallust-apply. Kept as the text-menu
-  # fallback; the QuickShell diamond picker (Phase 6) calls wallust-apply directly.
   wallust-switch = pkgs.writeShellScriptBin "wallust-switch" ''
     set -euo pipefail
 
