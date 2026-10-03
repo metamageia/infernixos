@@ -272,7 +272,6 @@ in {
             case "$1" in
               *[!0-9a-f]*) echo "invalid rev" >&2; exit 2 ;;
             esac
-            [ ''${
             exec nixos-rebuild switch --flake "git+file://${cfg.configRepo}?rev=$1#${cfg.configHost}"
           ''} %i";
         };
